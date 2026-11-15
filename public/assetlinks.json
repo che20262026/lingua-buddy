@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.vercel.linguabuddy.twa",
+        "sha256_cert_fingerprints": ["9F:38:19:17:90:42:3F:02:33:1F:A1:33:6F:43:23:5B:CB:7C:2C:3F:CA:60:78:12:68:A2:80:6A:CC:F7:3E:B4"]
+      }
+    }]

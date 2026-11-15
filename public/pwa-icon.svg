@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="LinguaBuddy">
+  <!-- ⚠️ 占位图标 PLACEHOLDER：发布前请替换成你自己的品牌图标。
+       替换后同步重跑 `npm run generate-icons` 生成 PNG（Chrome / iOS 安装需要位图）。 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5c8bfa"/>
+      <stop offset="1" stop-color="#2a51d8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- 字母 L -->
+  <path d="M176 128h62v196h112v60H176z" fill="#ffffff"/>
+  <!-- 对话气泡：小圆点 + 尾巴，呼应「开口说」 -->
+  <circle cx="352" cy="168" r="46" fill="#dce8ff"/>
+  <path d="M320 200l-14 38 52-30z" fill="#dce8ff"/>
+  <circle cx="338" cy="164" r="7" fill="#2a51d8"/>
+  <circle cx="356" cy="164" r="7" fill="#2a51d8"/>
+  <circle cx="374" cy="164" r="7" fill="#2a51d8"/>
+</svg>

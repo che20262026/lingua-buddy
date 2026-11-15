@@ -1,0 +1,53 @@
+# LinguaBuddy · Netlify 部署配置
+# ------------------------------------------------------------------
+# 在原有残缺配置上补全：修正 [[build] → [build]（旧写法是无效 TOML），
+# 追加 command / functions / Node 版本与 PWA 缓存头；原有 SPA 回退与
+# assetlinks.json 规则一条未删。
+#
+# 构建：npm run build（= tsc --noEmit && vite build）→ dist/
+# 函数：netlify/functions/chat.ts → /.netlify/functions/chat
+#
+# ⚠️ 下方 SPA 回退刻意不加 force = true：非强制的 200 rewrite 只在
+# 「找不到实际文件 / 函数」时才兜底，平台保留的 /.netlify/functions/*
+# 会先命中函数，不会被回退吞掉。若将来给这条规则加 force，函数就会
+# 被重写成 index.html —— 冒烟脚本对此有断言守着。
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Android TWA / PWA asset links（原有规则，保留）
+[[headers]]
+  for = "/assetlinks.json"
+  [headers.values]
+    Content-Type = "application/json"
+
+# PWA 更新闭环：Service Worker 与 manifest 绝不能被 CDN 缓存，
+# 否则 registerType:'prompt' 的新版本提示会永远收不到。
+# （与 legacy vercel.json 的 headers 保持同一套约定）
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate, max-age=0"
+    CDN-Cache-Control = "no-store"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate, max-age=0"
+    CDN-Cache-Control = "no-store"
+    Content-Type = "application/manifest+json; charset=utf-8"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate, max-age=0"

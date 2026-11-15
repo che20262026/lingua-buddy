@@ -1,0 +1,245 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --page: #f4f7ff;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: #1c2440;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 原创柔和渐变背景：晨雾蓝 + 一点点蜜桃光 */
+.app-bg {
+  background:
+    radial-gradient(900px 460px at 12% -8%, #dfeaff 0%, rgba(223, 234, 255, 0) 62%),
+    radial-gradient(760px 420px at 100% 4%, #fff0e6 0%, rgba(255, 240, 230, 0) 58%),
+    radial-gradient(700px 500px at 50% 110%, #e9f7f1 0%, rgba(233, 247, 241, 0) 60%),
+    #f4f7ff;
+  background-attachment: fixed;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.card {
+  @apply rounded-3xl border border-white/80 bg-white/90 shadow-card;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-500 px-5 py-3 text-sm font-bold text-white shadow-soft transition active:scale-[0.98] hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-white px-4 py-2.5 text-sm font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.chip {
+  @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
+}
+
+.field {
+  @apply w-full rounded-2xl border border-brand-100 bg-white px-4 py-3 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-brand-400 focus:ring-4 focus:ring-brand-100;
+}
+
+.en-text {
+  font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 0.005em;
+}
+
+/* 气泡小尾巴 */
+.bubble-ai::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 16px;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border-left: 1px solid #e8edf9;
+  border-bottom: 1px solid #e8edf9;
+  transform: rotate(45deg);
+}
+
+.bubble-me::before {
+  content: '';
+  position: absolute;
+  right: -6px;
+  top: 16px;
+  width: 12px;
+  height: 12px;
+  background: #3b6bf4;
+  transform: rotate(45deg);
+}
+
+@keyframes float-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: float-in 0.34s ease-out both;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.86); opacity: 0.65; }
+  70% { transform: scale(1.25); opacity: 0; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+.pulse-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  border: 3px solid rgba(59, 107, 244, 0.18);
+  border-top-color: #3b6bf4;
+  border-radius: 9999px;
+  animation: spin-slow 0.8s linear infinite;
+}
+
+.hide-scroll::-webkit-scrollbar { display: none; }
+.hide-scroll { scrollbar-width: none; }
+
+input[type='range'] {
+  accent-color: #3b6bf4;
+}
+
+details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+details > summary::-webkit-details-marker { display: none; }
+
+/* ---------------- [新增] 文学研读：阅读优先的排版 ---------------- */
+
+/* 大字号 + 宽松行高；注释放在段落下方，不打断阅读流 */
+.prose-reading {
+  font-size: 1.0625rem;
+  line-height: 1.95;
+  letter-spacing: 0.005em;
+}
+
+@media (min-width: 640px) {
+  .prose-reading {
+    font-size: 1.125rem;
+    line-height: 2.05;
+  }
+}
+
+/* 词汇高亮：像书签一样轻，点一下展开释义 */
+.lit-word {
+  border-radius: 0.35rem;
+  background: #eef4ff;
+  box-shadow: inset 0 -2px 0 #8fb3ff;
+  padding: 0 0.1em;
+  font-weight: 700;
+  color: #2a51d8;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.lit-word:hover { background: #dce8ff; }
+/* 旁侧词典展开时，正文里所有同形词一起点亮，方便对照 */
+.lit-word-active {
+  background: #d7e5ff;
+  box-shadow: inset 0 -2px 0 #4f79e8;
+  color: #1d3fa8;
+}
+
+/* 段落高亮 / 从研讨跳回原文时的定位提示 */
+.lit-highlight {
+  background: #fff2cf;
+  box-shadow: inset 3px 0 0 #ffc95c;
+}
+.lit-focus {
+  outline: 2px solid #8fb3ff;
+  outline-offset: 2px;
+  background: #eef4ff;
+}
+
+.lit-note {
+  border-left: 3px solid #bcd2ff;
+}
+
+/* ---------------- [新增] 文化视频：官方嵌入播放器合规样式 ---------------- */
+
+/* 视口不小于 200×200（YouTube 政策）；不在 iframe 上叠任何覆盖层 */
+[data-official-embed='true'] {
+  display: block;
+  min-width: 200px;
+  min-height: 200px;
+  background: #0b1020;
+}
+
+/* 降级 / 占位状态与播放器同样留足高度，避免布局跳动 */
+[data-player-mode='fallback'] > div:first-child {
+  min-height: 200px;
+}
+
+/* ---------------- [对话 UI 状态] 思考骨架屏 ----------------
+ * 只用 transform / opacity / background-position，不触发布局；
+ * 全部动效在 prefers-reduced-motion: reduce 下关闭，静态骨架仍可辨识。
+ */
+@keyframes skeleton-breathe {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+@keyframes skeleton-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.45; }
+  40%           { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+@keyframes skeleton-track {
+  from { transform: translateX(-110%); }
+  to   { transform: translateX(320%); }
+}
+
+.skeleton-breathe { animation: skeleton-breathe 1.6s ease-in-out infinite; }
+.skeleton-dot     { animation: skeleton-dot 1.2s ease-in-out infinite; }
+.skeleton-bar {
+  background: linear-gradient(90deg, #eef2fb 25%, #f9fbff 50%, #eef2fb 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s linear infinite;
+}
+/* 顶部推进轨是唯一的强调色动效：宽度固定，靠 translateX 扫过整条气泡 */
+.skeleton-track {
+  width: 34%;
+  background: linear-gradient(90deg, transparent, #5c8bfa, transparent);
+  animation: skeleton-track 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-breathe,
+  .skeleton-dot,
+  .skeleton-bar,
+  .skeleton-track { animation: none; }
+  .skeleton-track { width: 100%; opacity: 0.45; }
+  .animate-in { animation: none; }
+}

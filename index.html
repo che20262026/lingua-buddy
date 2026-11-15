@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f8ff" />
+    <meta name="description" content="LinguaBuddy 语伴英语 —— 把任意英文文本变成一场可以开口说的对话冒险。" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%233b6bf4'/%3E%3Ctext x='32' y='44' font-size='36' text-anchor='middle' fill='white' font-family='Arial'%3EL%3C/text%3E%3C/svg%3E" />
+
+    <!-- [PWA] 基础：manifest 链接由 vite-plugin-pwa 在构建时自动注入到 head，此处不要手写，避免重复 -->
+    <meta name="application-name" content="LinguaBuddy" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="LinguaBuddy" />
+    <!-- 浅色主题用 default，避免 iOS 状态栏文字与深底打架；如需沉浸式再改 black-translucent 并补 safe-area -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="format-detection" content="telephone=no" />
+    <!-- iOS 只认 PNG；SVG 占位不能用于 apple-touch-icon -->
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+
+    <title>LinguaBuddy 语伴英语</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
