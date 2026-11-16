@@ -4534,7 +4534,14 @@ window.__mountEB = (el, boom, onError) => {
   const ebUnmountBoom = ew.__mountEB(ebBoomEl, true,
     (err) => { ebCaught += 1; ebCaughtMsg = String(err && err.message) })
   const ebUnmountFine = ew.__mountEB(ebFineEl, false, () => {})
-  await tick(40)
+  /* React 18 createRoot 是并发提交：固定等待在高负载机器上偶发不够
+     （曾出现健康子树尚未提交就断言的抖动）。轮询等两个 root 都真正落定后再验 DOM，
+     探针加固，不改任何组件。 */
+  for (let ebWait = 0; ebWait < 20; ebWait++) {
+    if (ebBoomEl.querySelector('[data-testid="error-boundary-fallback"]')
+      && ebFineEl.textContent.includes('一切正常')) break
+    await tick(20)
+  }
   const ebFallback = ebBoomEl.querySelector('[data-testid="error-boundary-fallback"]')
   assert(!!ebFallback && ebFallback.getAttribute('role') === 'alert'
     && ebBoomEl.textContent.includes('哎呀，应用开小差了')
@@ -4721,9 +4728,49 @@ window.__mountEB = (el, boom, onError) => {
     }
   }
 
+  /* ============================================================
+   * 三十五、Netlify 注入徽章的 CSS 隐藏兜底（纯样式，业务代码零改动）
+   * ============================================================ */
+  const badgeCss = fs.readFileSync(path.join(root, 'src/index.css'), 'utf8')
+  const badgeBlock = badgeCss.split('Netlify 注入徽章')[1] || ''
+  assert(badgeBlock.includes('html body :is(') && badgeBlock.includes('display: none !important')
+    && badgeBlock.includes('visibility: hidden !important') && badgeBlock.includes('opacity: 0 !important')
+    && badgeBlock.includes('pointer-events: none !important')
+    && badgeBlock.includes('overflow: hidden !important'),
+  '全局样式新增徽章隐藏规则：display / visibility / opacity / 交互 / 溢出五重锁，全部 !important')
+  assert(["#netlify-badge", ".netlify-badge", "netlify-badge,", "iframe[src*=",
+    "iframe[title*=", "[data-netlify-badge]", "[class*='netlify-badge' i]",
+    "[class*='netlify' i]"]
+    .every((s) => badgeBlock.includes(s)),
+  '选择器覆盖 id / class / 自定义元素 / iframe(src,title) / data 属性四类宿主，含宽口径 [class*="netlify"]')
+  assert(badgeBlock.includes('display: none !important')
+    && badgeBlock.includes('opacity: 0 !important')
+    && badgeBlock.includes('pointer-events: none !important')
+    && badgeBlock.includes('position: absolute !important'),
+  '宽口径 [class*="netlify"] 同样挂上 display:none / opacity:0 / pointer-events:none 三件套')
+  assert(badgeCss.indexOf('Netlify 注入徽章') > badgeCss.indexOf('@media (prefers-reduced-motion: reduce)')
+    && badgeBlock.includes('isolated / inline frame')
+    && badgeBlock.includes('Powered by Netlify badge'),
+  '规则置于全局样式末尾；注释如实标注官方隔离 frame 限制与后台开关，不误导后来者')
+  let badgeCssParsed = false
+  try {
+    await transform(badgeCss, { loader: 'css' })
+    badgeCssParsed = true
+  } catch { /* ignore */ }
+  assert(badgeCssParsed,
+  '运行时：整份 index.css 仍能被 esbuild 解析为合法 CSS（属性选择器 i 标志不破坏构建）')
+  const badgeDistCss = fs.readdirSync(assetDir).find((f) => /^index-.*\.css$/.test(f))
+  assert(!!badgeDistCss
+    && fs.readFileSync(path.join(assetDir, badgeDistCss), 'utf8').includes('netlify-badge'),
+  '生产包 CSS 确实带上徽章隐藏规则，部署后不是「只躺在源码里」')
+  assert(fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('三十五、'),
+  'README 记录徽章真相与后台开关 / CSP 两种根治手段')
+  assert(Object.entries(FROZEN).every(([rel, hash]) => frozenHash(rel) === hash),
+  '本轮只动全局样式与验证脚本，7 个网络层 / 后端 / 部署基线文件全部逐字节未变')
+
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

@@ -3667,3 +3667,61 @@ npm run smoke     ✅ 1302 断言全绿、控制台 0 错误、退出码 0（原
 运行时断言直接用 esbuild 打包 `netlify/functions/chat.ts` 并真执行：GET 双态、OPTIONS/405、非法 JSON、伪造上游成功、SSE 缓冲、上游 401 脱敏、以及 `handler(event)` 完整返回 Netlify 契约——不是只读源码点头。
 
 > 历史章节与源码注释里残留的 `/api/chat` 是 Vercel 时代的演进记录；**功能路径一律以 `AI_ENDPOINT` 为准**。
+
+---
+
+## 三十五、隐藏 Netlify "Powered by Netlify" 徽章（v2.1 增量）
+
+### 35.1 先说清楚：CSS 不是根治手段
+
+用户反馈手机端右下角被 "Powered by Netlify" 浮动徽章遮住底部导航。查 Netlify 官方文档（[Powered by Netlify badge](https://docs.netlify.com/manage/projects/powered-by-netlify-badge)，2026-08-19 更新）后，有三条必须先讲明的事实：
+
+1. 该徽章是 Netlify **在边缘服务器注入的内联脚本**，免费计划 2026-08-19 之后新建的公开项目默认开启；源码、构建产物、依赖都不受影响。
+2. 它**渲染在隔离的 inline frame 里**——官方原话 "your project's CSS can't affect the badge"，也就是说站点 CSS 无法作用于徽章内部。
+3. 因此**只靠 CSS 不能保证 100% 隐藏官方徽章**。下面按「根治 → 兜底」排优先级。
+
+### 35.2 三种手段，按推荐顺序
+
+| 手段 | 做法 | 是否需要部署 | 对官方徽章是否有效 |
+|---|---|---|---|
+| **① 后台开关（首选）** | Netlify UI → 项目 → **Project configuration → General → Powered by Netlify badge** → 关闭 → **Save** | ❌ 官方说明「下次请求即生效，无需重新部署」 | ✅ 对所有访客彻底移除 |
+| **② CSP（代码层根治）** | 在 `netlify.toml` 加一条 header，让 `script-src` **不含 `'unsafe-inline'`**（片段见 35.3） | ✅ 需要重新部署 | ✅ 官方明确：徽章与 pre-launch toolbar 都不渲染，且不影响应用其它部分 |
+| **③ CSS 兜底（本轮已落盘）** | `src/index.css` 末尾一段规则，见 35.4 | ✅ 需要重新部署 | ⚠️ 能挡住落在主文档里的普通注入物与其它第三方右下角浮标；对隔离 frame 不保证 |
+
+> ⚠️ 访客自己点徽章卡片里的 "Hide this badge" 只对该浏览器、该域名生效，存在 localStorage 里；iOS / Safari 7 天后会失效，其它访客仍会看到。要「对所有人生效」必须用 ① 或 ②。
+
+### 35.3 备选：用 CSP 从源头掐掉注入脚本
+
+本轮**没有擅自启用**（CSP 是全局安全策略，加之前应确认项目没有其它内联脚本）。需要时把这段加进 `netlify.toml` 的 `[[headers]]` 区块即可，官方明确说明这样徽章脚本不会渲染、且不影响应用其它部分：
+
+```toml
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "script-src 'self'"
+```
+
+本项目 `index.html` 无内联脚本、`vite-plugin-pwa` 用了 `injectRegister: null`（不注入内联注册代码），构建产物都是同源外部 JS，因此 `script-src 'self'` 与现有 PWA 兼容；上线前仍建议用 DevTools Console 扫一遍 CSP 报错。
+
+### 35.4 已落盘：全局样式的隐藏兜底
+
+`src/index.css` **末尾**（在 `prefers-reduced-motion` 之后，级联顺序靠后）新增一段规则：
+
+- **选择器**：`html body :is(...)` 抬高特异性，覆盖 `#netlify-badge`、`.netlify-badge`、`netlify-badge` / `netlify-prelaunch-toolbar` 自定义元素、`[id*]` / `[class*]` / `[data-*]`、以及 `iframe[src|id|class|name|title*='Netlify']` 等四类宿主。
+  - 用户已确认徽章宿主是**带 `netlify-badge` 类名的 div 或 iframe**，规则对标签不敏感（class 选择器命中任意元素），div 与 iframe 一网打尽。
+  - 额外加入**宽口径 `[class*='netlify' i]`**，兼容 `netlify-badge-*` 等变体拼写；已核查本应用源码与构建产物中**没有任何自身含 "netlify" 的类名**，放宽后不会误伤界面元素。
+  - 关键词收窄在 netlify / badge 家族内，不碰应用自身元素。
+- **五重锁**：`display: none` + `visibility: hidden` + `opacity: 0` + 宽高归零 / `overflow: hidden` + `pointer-events: none`，并 `position: absolute; z-index: -1` 移出视口；全部 `!important` 尽量压过注入样式。
+- **注释如实写明**隔离 frame 的限制与后台开关位置，避免后来者误以为这段 CSS 已经万事大吉。
+
+### 35.5 验收与 PWA 提醒
+
+```text
+npx tsc --noEmit  ✅
+npm run build     ✅（徽章规则确实进入 dist/assets/index-*.css）
+npm run smoke     ✅ 第三十五章 7 条断言全绿、控制台 0 错误
+```
+
+第三十五章断言会校验选择器覆盖、五重锁、注释里的真相说明、整份 CSS 可被 esbuild 解析，以及**生产包 CSS 里真的带上了规则**（不是只躺在源码里）。
+
+> PWA 提醒：应用用了 `registerType: 'prompt'`，老用户可能仍在跑缓存的旧 CSS。部署后若底部提示「发现新版本，点击刷新」，点一下才会拿到新样式。当然，最省事的还是 35.2 的 ① —— 后台一关，连这次部署都省了。

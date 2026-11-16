@@ -243,3 +243,66 @@ details > summary::-webkit-details-marker { display: none; }
   .skeleton-track { width: 100%; opacity: 0.45; }
   .animate-in { animation: none; }
 }
+
+/* ---------------- [新增] Netlify 注入徽章 / 右下角浮标：强制隐藏 ----------------
+ * 背景：Netlify 在边缘服务器向页面注入 "Powered by Netlify" 徽章脚本，
+ * 浮在页面右下角，会压住手机端底部导航与输入区。
+ *
+ * ⚠️ 必须先知道的事实（详见 README 第三十五章）：Netlify 官方文档说明该徽章
+ *   渲染在「isolated / inline frame」里，站点 CSS 无法作用于徽章内部。
+ *   所以下面这段是「主文档宿主元素层的兜底」：能挡住以普通 div / iframe /
+ *   自定义元素落在主文档里的注入物，对其第三方右下角浮标同样有效；
+ *   但对官方那个隔离 frame 的徽章，真正一步到位的手段是：
+ *     ① Netlify 后台 → Project configuration → General →
+ *        Powered by Netlify badge → 关闭（下次请求生效，无需重新部署）；
+ *     ② 或在 netlify.toml 配 CSP，script-src 不含 'unsafe-inline'
+ *        （官方说明：这样徽章脚本不会渲染，且不影响应用其它部分）。
+ *
+ * 选择器刻意收窄到 netlify / badge 关键词，不碰应用自身的任何元素；
+ * html body :is(...) 抬高特异性，配合 !important 尽量压过注入样式。
+ *
+ * 覆盖形态（div / iframe / 自定义元素 一律命中，class 选择器不限定标签）：
+ *   .netlify-badge、#netlify-badge、netlify-badge、netlify-prelaunch-toolbar、
+ *   [class*='netlify' i]（宽口径，兼容 netlify-badge-* 等变体拼写）、
+ *   [id*='netlify-badge' i]、[data-netlify-badge]、
+ *   iframe[src|id|class|name|title*='netlify' i]、
+ *   a[href*='netlify.com' i][class*='badge' i]。
+ * 已核查：本应用自身不含任何含 "netlify" 的类名，放宽不会误伤界面元素。
+ */
+html body :is(
+  #netlify-badge,
+  .netlify-badge,
+  [id*='netlify-badge' i],
+  [class*='netlify-badge' i],
+  [class*='netlify' i],
+  [data-netlify-badge],
+  [data-testid*='netlify' i],
+  netlify-badge,
+  netlify-prelaunch-toolbar,
+  [is*='netlify' i],
+  iframe[src*='netlify' i],
+  iframe[id*='netlify' i],
+  iframe[class*='netlify' i],
+  iframe[name*='netlify' i],
+  iframe[title*='Netlify' i],
+  a[href*='netlify.com' i][class*='badge' i]
+) {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  top: -9999px !important;
+  left: -9999px !important;
+  z-index: -1 !important;
+}
