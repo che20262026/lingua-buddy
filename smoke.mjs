@@ -5813,6 +5813,7 @@ window.__mountLab = (el, entry) => {
     const ffPageSrc = fs.readFileSync(path.join(root, 'src/pages/FreeTalk.tsx'), 'utf8')
     const ffAvatarSrc = fs.readFileSync(path.join(root, 'src/components/FatFishAvatar.tsx'), 'utf8')
     const ffVoiceSrc = fs.readFileSync(path.join(root, 'src/hooks/useFatFishVoice.ts'), 'utf8')
+    const ffDictateSrc = fs.readFileSync(path.join(root, 'src/hooks/useVoiceDictation.ts'), 'utf8')
     const ffCssSrc = fs.readFileSync(path.join(root, 'src/index.css'), 'utf8')
     const ffGrowthSrc = fs.readFileSync(path.join(root, 'src/growthTypes.ts'), 'utf8')
     const ffAppSrc = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8')
@@ -5947,6 +5948,26 @@ window.__mountLab = (el, entry) => {
       'TTS 音色严格按口音匹配：优先取 lang 完全一致的英语音色，并显式传 lang 标签')
     assert(ffVoiceSrc.includes('available: Boolean(exactVoice)') && ffPageSrc.includes('freetalk-accent-missing'),
       '设备没有该口音音色时如实告知，而不是拿别的音色糊弄')
+
+    /* [语音输入] hook 是 lib/speech.startListening 的薄封装，不重复造识别逻辑 */
+    assert(ffDictateSrc.includes("from '../lib/speech'") && ffDictateSrc.includes('startListening')
+      && ffDictateSrc.includes('describeSpeechSupport') && !ffDictateSrc.includes('new (window as'),
+      '语音输入 hook 复用 lib/speech 的 startListening 与能力探测，不另造一套识别器')
+    assert(ffDictateSrc.includes('epochRef.current') && ffDictateSrc.includes('optionsRef.current')
+      && ffDictateSrc.includes('handleRef.current?.cancel()'),
+      '语音输入有 epoch 防迟到回调 + props 快照刷新 + 卸载/切口音时释放麦克风')
+    assert(ffDictateSrc.includes('onTranscript') && !ffDictateSrc.includes('send(')
+      && ffPageSrc.includes('onTranscript: (spoken) => setText'),
+      '识别文字只交给调用方追加进输入框，hook 自身绝不自动发送')
+    assert(ffPageSrc.includes('data-testid="freetalk-mic"') && ffPageSrc.includes('dictation.toggle')
+      && ffPageSrc.includes('dictation.listening') && ffPageSrc.includes('sending || summarizing || dictation.listening'),
+      '输入台有麦克风按钮；听写中禁用发送，杜绝半句话发出去')
+    assert(ffPageSrc.includes('freetalk-dictation-interim') && ffPageSrc.includes('aria-live="polite"')
+      && ffPageSrc.includes('dictation.interim') && ffPageSrc.includes('dictation.cancel()'),
+      '实时字幕用 aria-live 播报、标注未确认需核对；手动输入与切角色都会取消听写')
+    assert(ffCssSrc.includes('ff-mic-pulse') && ffCssSrc.includes('.ff-mic-live { animation: none; }')
+      && ffCssSrc.includes('prefers-reduced-motion: reduce'),
+      '麦克风脉冲只动 transform/opacity，且在减少动态效果设置下关闭')
     assert(ffCssSrc.includes('.ff-avatar-speaking.ff-motion-bounce')
       && ffCssSrc.includes('.ff-avatar-speaking.ff-motion-sway')
       && ffCssSrc.includes('.ff-avatar-speaking.ff-motion-float')
@@ -6197,6 +6218,49 @@ export { invokeFreetalk } from './netlify/functions/freetalk.ts'
       const gbAccent = document.querySelector('[data-testid="freetalk-accent-en-GB"]')
       assert(!!gbAccent && gbAccent.getAttribute('aria-pressed') === 'true',
         '切换到御姐后，口音自动跟到她的默认英音 en-GB')
+
+      /* [语音输入] 完整链路：点麦克风 → 假识别器出字 → 文字进输入框但不自动发送 */
+      const micBtn = document.querySelector('[data-testid="freetalk-mic"]')
+      assert(!!micBtn && micBtn.getAttribute('aria-label')?.includes('语音输入'),
+        '输入台有语音输入麦克风按钮（无障碍标签齐全）')
+      class FishRecognition {
+        constructor() {
+          this.lang = ''; this.continuous = false; this.interimResults = false; this.maxAlternatives = 1
+          FishRecognition.lastLang = undefined
+        }
+        start() {
+          FishRecognition.lastLang = this.lang
+          /* 先给一段 interim 实时字幕，再给 final，验证两级状态 */
+          setTimeout(() => this.onresult?.({ resultIndex: 0,
+            results: [{ isFinal: false, length: 1, 0: { transcript: 'fancy some' } }] }), 15)
+          setTimeout(() => {
+            this.onresult?.({ resultIndex: 0,
+              results: [{ isFinal: true, length: 1, 0: { transcript: 'fancy some tea' } }] })
+            this.onend?.()
+          }, 40)
+        }
+        stop() {}
+        abort() {}
+      }
+      const bubblesBeforeDictate = document.querySelectorAll('[data-testid="freetalk-page"] .animate-in').length
+      globalThis.window.SpeechRecognition = FishRecognition
+      /* 切御姐触发过重渲染，重新查询按钮，避免 fire 到过期 DOM 节点 */
+      fire(document.querySelector('[data-testid="freetalk-mic"]'))
+      await tick(25)
+      assert(!!document.querySelector('[data-testid="freetalk-dictation-interim"]'),
+        '听写中出现实时字幕条（aria-live 播报）')
+      await tick(160)
+      const afterDictate = document.querySelector('[data-testid="freetalk-input"]')
+      assert(afterDictate.value.includes('fancy some tea'),
+        '识别出的文字自动追加进输入框')
+      assert(!!document.querySelector('[data-testid="freetalk-dictation-note"]')
+        && bodyText().includes('已转成文字'),
+      '听写完成给出「已转成文字，确认后发送」的核对提示')
+      assert(document.querySelectorAll('[data-testid="freetalk-page"] .animate-in').length === bubblesBeforeDictate,
+        '识别文字只进输入框、不自动发送（消息气泡数未增加）')
+      assert(FishRecognition.lastLang === 'en-GB',
+        '识别器口音跟随当前口音档位（御姐 en-GB，不是默认 en-US）')
+      delete globalThis.window.SpeechRecognition
 
       /* 上游不可用（jsdom 里 fetch 打不通）→ 本地演示大肥鱼顶上 + 友好错误卡 */
       const finishBtn = document.querySelector('[data-testid="freetalk-finish"]')

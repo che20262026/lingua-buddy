@@ -346,6 +346,22 @@ details > summary::-webkit-details-marker { display: none; }
   40%           { transform: translateY(-5px); opacity: 1; }
 }
 
+/* [语音输入] 麦克风听写中：只动 transform / opacity，不触发 layout */
+@keyframes ff-mic-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.09); opacity: 0.82; }
+}
+.ff-mic-live { animation: ff-mic-pulse 1.05s ease-in-out infinite; }
+.ff-dictation-live {
+  background: var(--ff-bubble);
+  border-color: var(--ff-ring);
+}
+
+/* 语音输入动效同样尊重系统「减少动态效果」设置 */
+@media (prefers-reduced-motion: reduce) {
+  .ff-mic-live { animation: none; }
+}
+
 /* ---------------- [新增] Netlify 注入徽章 / 右下角浮标：强制隐藏 ----------------
  * 背景：Netlify 在边缘服务器向页面注入 "Powered by Netlify" 徽章脚本，
  * 浮在页面右下角，会压住手机端底部导航与输入区。

@@ -4366,6 +4366,26 @@ Netlify → **Site settings → Environment variables** 确认 `LLM_API_KEY`（�
 JSON 剥围栏/标签/截断、消息数与长度上限、XP 事件 id 幂等、
 abort 竞态被 UI 禁用堵死、限流 IP 分桶。
 
+### 41.6.2 语音输入：说话转文字（不自动发送）
+
+鱼塘输入台新增麦克风按钮，点一下开始听写、再点一下停止出字：
+
+- **复用不重造**：`src/hooks/useVoiceDictation.ts` 是 `lib/speech.startListening`
+  的薄封装——超时 / 静音自动收尾 / 服务中断重试 / 权限错误翻译 / TTS 互斥
+  全部沿用既有实现，一行没重写。主对话页已有等价逻辑，两个页面往后可共用同一状态机。
+- **口音跟随**：识别器 `lang` 取当前口音（en-US / en-GB / en-AU），
+  切换角色时口音变化会作废上一口音的在途听写，不会用英音识别器收澳音的话。
+- **只进输入框、不自动发送**：识别文字追加进 textarea，用户核对 / 修改后自己点发送；
+  听写中发送按钮禁用，杜绝半句话发出去。实时字幕用 `aria-live="polite"` 播报，
+  并明确标注「未确认片段请核对」。
+- **降级不中断**：没有语音识别 / 权限被拒 / 服务不可用时给出可操作中文说明，
+  文本输入完全不受影响；手动打字会取消在途听写，两者互斥。
+- **生命周期干净**：epoch 防迟到回调（卸载 / 切角色 / 重开后旧识别器回调一律作废）、
+  `optionsRef` 取最新 props、`cancel()` 释放麦克风；麦克风脉冲只动 transform/opacity，
+  `prefers-reduced-motion: reduce` 下关闭。
+
+> 红线不变：不新增 localStorage 键、不碰 XP 与五步闭环、不动底部 8 项导航。
+
 ### 41.7 落盘清单
 
 | 文件 | 说明 |
@@ -4383,6 +4403,7 @@ abort 竞态被 UI 禁用堵死、限流 IP 分桶。
 | `src/growthTypes.ts`（改） | `XP_RULES.freetalk_summary: 6`、`XpSource` 新增 `freetalk` |
 | `netlify/lib/rateLimit.ts`（改） | 导出 `parseLimit()` 与默认档位（**算法一行未改**） |
 | `server.ts`（改） | 本地联调台挂 `/.netlify/functions/freetalk`；假上游按 `[TASK:*]` 标记分流 |
+| `src/hooks/useVoiceDictation.ts`（新） | 语音输入状态机（薄封装 startListening）：口音跟随 / 实时字幕 / 不自动发送 / 降级 |
 
 ### 41.8 本地联调
 
