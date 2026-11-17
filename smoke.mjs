@@ -562,6 +562,25 @@ try {
 
   /* ============ v1.2：录音转文字四个丢字场景的回归护栏 ============ */
   const { composeTranscript, startListening } = speechMod
+
+  /* [移动端长录音] 根因护栏：默认超时/静音阈值 + 会话续听 + 可见性恢复 */
+  const speechSrcRaw = fs.readFileSync(path.join(root, 'src/lib/speech.ts'), 'utf8')
+  const maxSessionConst = Number(speechSrcRaw.match(/const MAX_SESSION_MS = (\d+)/)?.[1] || 0)
+  const defTimeout = Number(speechSrcRaw.match(/const timeoutMs = opts\.timeoutMs \?\? (\d+|MAX_SESSION_MS)/)?.[1] || 0) || maxSessionConst
+  const defSilence = Number(speechSrcRaw.match(/const silenceMs = opts\.silenceMs \?\? (\d+)/)?.[1] || 0)
+  assert(defTimeout >= 60000 && defSilence >= 3000,
+    '移动端长录音：听写默认超时 ≥60s、静音收尾 ≥3s（手机说话慢/停顿久不被误切断）')
+  assert(speechSrcRaw.includes('startedAt += away') && speechSrcRaw.includes('const armDeadlineTimer')
+    && /remaining = Math\.max\(0, timeoutMs - \(Date\.now\(\) - startedAt\)\)/.test(speechSrcRaw),
+    '移动端长录音：息屏时长补偿回会话预算 + 总超时按剩余额度动态计算（切后台偷走的时间不算数）')
+  assert(speechSrcRaw.includes('visibilitychange') && speechSrcRaw.includes('visibilityState'),
+    '移动端切后台/息屏：监听 visibilitychange，回前台恢复被冻结的听写计时')
+  assert(/const from = Math\.max\(0, e\.resultIndex \?\? 0\)/.test(speechSrcRaw)
+    && /i < from \+ e\.results\.length/.test(speechSrcRaw),
+    'resultIndex off-by-one 修复：按「起始下标 + 本批数量」遍历，续段文字不再被吞')
+  const hookSrcRaw = fs.readFileSync(path.join(root, 'src/hooks/useVoiceDictation.ts'), 'utf8')
+  assert(/timeoutMs:\s*\d{5,}/.test(hookSrcRaw) && /silenceMs:\s*[3-9]\d{3,}/.test(hookSrcRaw),
+    '鱼塘语音输入显式声明长录音参数，不吃 15s/1.8s 的短默认值')
   assert(composeTranscript(['Hello', undefined], new Map([[1, 'world']])) === 'Hello world',
     'final 与 interim 按 resultIndex 合并成完整句子')
   assert(composeTranscript([], new Map([[0, 'Only interim text']])) === 'Only interim text'
@@ -611,6 +630,23 @@ try {
     if (opts.afterStart && handle) opts.afterStart(handle)
     guard = setTimeout(() => finish({ type: 'timeout' }), 4000)
   })
+
+  /* [移动端长录音] 运行时护栏：resultIndex=1、length=1 的尾段 final 必须被收进来，
+     不能因为旧的 `i < results.length` 循环边界把最后一段吞掉（续段丢字）。 */
+  class TailChunkRecognition {
+    constructor() { this.lang=''; this.continuous=false; this.interimResults=false; this.maxAlternatives=1 }
+    start() {
+      setTimeout(() => {
+        this.onresult?.({ resultIndex:0, results:[{isFinal:true,length:1,0:{transcript:'chunk one'}}] })
+        this.onresult?.({ resultIndex:1, results:[{isFinal:true,length:1,0:{transcript:'chunk two'}}] })
+        this.onend?.()
+      }, 15)
+    }
+    stop() {} abort() {}
+  }
+  const tailChunk = await listenOnce(TailChunkRecognition)
+  assert(tailChunk.type === 'result' && tailChunk.t === 'chunk one chunk two',
+    '移动端长录音续段不丢字：resultIndex=1 的尾段 final 完整保留（off-by-one 回归护栏）')
 
   class InterimOnlyRecognition {
     start() {

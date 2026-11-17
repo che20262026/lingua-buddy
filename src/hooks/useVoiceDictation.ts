@@ -96,6 +96,10 @@ export function useVoiceDictation(options: VoiceDictationOptions): VoiceDictatio
 
     const handle = startListening({
       accent: optionsRef.current.accent,
+      /* [移动端长录音] 显式声明：自由对话是长会话，3 分钟总时长 / 4 秒静音收尾。
+         短场景（发音评测 8s）在它自己的调用点显式覆盖，互不影响。 */
+      timeoutMs: 180000,
+      silenceMs: 4000,
       onInterim: (t) => { if (epoch === epochRef.current) setInterim(t) },
       onStatus: (m) => { if (epoch === epochRef.current) setNote(m) },
       onResult: (t, meta) => {

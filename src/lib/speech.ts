@@ -517,6 +517,13 @@ export function composeTranscript(
   return parts.join(' ').replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * [移动端长录音] 总会话时长硬顶：3 分钟。
+ * 移动端浏览器（Android Chrome ~60s / iOS Safari ~20–60s）会强制结束
+ * SpeechRecognition 会话，需要在总窗口内自动续听；到顶后停，绝不无限占用麦克风。
+ */
+const MAX_SESSION_MS = 180000
+
 export function startListening(opts: ListeningOptions): ListeningHandle | null {
   if (!recognitionSupported()) return null
   const w = window as unknown as Record<string, new () => RecognitionLike>
@@ -526,10 +533,13 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
   // 关键：自动朗读会把 AI 的声音送进麦克风，也会抢占音频设备
   stopSpeaking()
 
-  const startedAt = Date.now()
+  let startedAt = Date.now() // [移动端长录音] let：切后台补偿时长时要往后推
   const maxRetries = Math.max(0, Math.min(3, opts.retries ?? 1))
-  const timeoutMs = opts.timeoutMs ?? 15000
-  const silenceMs = opts.silenceMs ?? 1800
+  /* [移动端长录音] 默认从 15s/1.8s 提到 180s/4s：
+     手机用户说话慢、中途思考停顿 2 秒是常态，1.8s 静音会把人误判成「说完了」。
+     发音评测等短场景仍显式传 8s/1.5s，不受此默认值影响。 */
+  const timeoutMs = opts.timeoutMs ?? MAX_SESSION_MS
+  const silenceMs = opts.silenceMs ?? 4000
   const graceMs = 900 // stop() 之后留给浏览器提交 final 的窗口
 
   const finals: Array<string | undefined> = []
@@ -547,6 +557,9 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
   let timer: number | undefined
   let graceTimer: number | undefined
   let silenceTimer: number | undefined
+  /** [移动端长录音] 页面是否在后台：后台时冻结静音/总超时计时，避免被系统节流误杀 */
+  let pageHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+  let hiddenAt = 0
 
   const clearTimers = () => {
     for (const t of [timer, graceTimer, silenceTimer]) {
@@ -574,6 +587,7 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
     if (settled) return
     settled = true
     clearTimers()
+    removeVisibilityHandler()
     setMicActive(false)
     const text = fullText()
     releaseCurrent(!stoppedByUs)
@@ -624,9 +638,12 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
   }
 
   const onResult = (e: RecognitionEventLike) => {
-    const from = Math.max(0, Math.min(e.resultIndex ?? 0, e.results.length))
-    for (let i = from; i < e.results.length; i++) {
-      const r = e.results[i]
+    /* resultIndex 是「本批结果要写入的绝对起始下标」，results.length 是本批数量。
+       循环上限必须是 from + length，而不是 length —— 后者在 resultIndex=1、length=1
+       时一次都不跑（原 off-by-one），clamp 到 length-1 又会覆盖前面的跨会话文字。 */
+    const from = Math.max(0, e.resultIndex ?? 0)
+    for (let i = from; i < from + e.results.length; i++) {
+      const r = e.results[i - from]
       const t = r?.[0]?.transcript?.trim()
       if (!t) continue
       if (r.isFinal) {
@@ -720,14 +737,63 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
     createRecognizer()
   }
 
-  createRecognizer()
-  if (settled) return { stop: () => {}, cancel: () => {} }
+  /** 总超时：按「已过去的会话时间」动态计算剩余额度，续听后不会重新计满 3 分钟 */
+  const armDeadlineTimer = () => {
+    if (timer !== undefined) { try { window.clearTimeout(timer) } catch { /* 忽略 */ } }
+    timer = undefined
+    if (pageHidden) return // 后台冻结，回前台再武装
+    const remaining = Math.max(0, timeoutMs - (Date.now() - startedAt))
+    timer = window.setTimeout(() => {
+      if (settled || cancelled) return
+      opts.onStatus?.('时间到，正在整理听到的文字…')
+      gracefulStop('timeout')
+    }, remaining)
+  }
 
-  timer = window.setTimeout(() => {
+  /**
+   * [移动端长录音] 息屏 / 切后台处理：
+   * 后台时浏览器会把 setTimeout 节流到 1 分钟甚至冻结，MediaRecorder 流也可能被系统挂起。
+   * 这里在隐藏时清掉计时器、记录离场时刻；回前台把后台时长「补偿」回 startedAt，
+   * 相当于会话时间暂停，避免用户什么都没说就被总超时误杀。
+   */
+  const onVisibilityChange = () => {
     if (settled || cancelled) return
-    opts.onStatus?.('时间到，正在整理听到的文字…')
-    gracefulStop('timeout')
-  }, timeoutMs)
+    const doc = typeof document !== 'undefined' ? document : null
+    if (!doc) return
+    if (doc.visibilityState === 'hidden') {
+      pageHidden = true
+      hiddenAt = Date.now()
+      for (const t of [timer, silenceTimer]) {
+        if (t !== undefined) { try { window.clearTimeout(t) } catch { /* 忽略 */ } }
+      }
+      timer = undefined; silenceTimer = undefined
+      opts.onStatus?.('页面切到后台，听写已暂停；回来后继续。')
+    } else {
+      if (!pageHidden) return
+      pageHidden = false
+      const away = hiddenAt ? Date.now() - hiddenAt : 0
+      if (away > 0) startedAt += away // 时间补偿：后台不计入会话时长
+      hiddenAt = 0
+      opts.onStatus?.('欢迎回来，继续听…')
+      armDeadlineTimer()
+    }
+  }
+
+  /** 注册 / 移除可见性监听（finish 与 cancel 都要摘掉，绝不留全局监听） */
+  const addVisibilityHandler = () => {
+    if (typeof document === 'undefined' || !document.addEventListener) return
+    try { document.addEventListener('visibilitychange', onVisibilityChange) } catch { /* 忽略 */ }
+  }
+  function removeVisibilityHandler() {
+    if (typeof document === 'undefined' || !document.removeEventListener) return
+    try { document.removeEventListener('visibilitychange', onVisibilityChange) } catch { /* 忽略 */ }
+  }
+
+  addVisibilityHandler()
+  createRecognizer()
+  if (settled) { removeVisibilityHandler(); return { stop: () => {}, cancel: () => {} } }
+
+  armDeadlineTimer()
 
   return {
     stop: () => {
@@ -740,6 +806,7 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
       cancelled = true
       settled = true
       clearTimers()
+      removeVisibilityHandler()
       setMicActive(false)
       releaseCurrent()
       // 主动丢弃：不回调 onResult / onError / onEnd
