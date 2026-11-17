@@ -33,6 +33,8 @@ import { AchievementsPage } from './pages/AchievementsPage'
 /** [China Learner Track] 资源库首页与单元练习页：不新增底部导航项 */
 import { ChinaTrackHome } from './pages/ChinaTrackHome'
 import { ChinaUnitPage } from './pages/ChinaUnitPage'
+/** [新增] 大肥鱼自由对话：独立闲聊沙盒视图 */
+import { FreeTalk } from './pages/FreeTalk'
 
 const PAGES: Record<View, ReactNode> = {
   home: <Home />,
@@ -64,6 +66,8 @@ const PAGES: Record<View, ReactNode> = {
   /** [China Learner Track] 两个新视图 */
   chinaTrack: <ChinaTrackHome />,
   chinaUnit: <ChinaUnitPage />,
+  /** [新增] 大肥鱼自由对话：独立闲聊沙盒 */
+  freeTalk: <FreeTalk />,
 }
 
 /**

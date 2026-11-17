@@ -5,6 +5,8 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   readonly VITE_SUPABASE_ANON_KEY?: string
+  /** Vite 部署基路径（本项目 base:'./'，构建期为相对路径，用于拼 public 资源） */
+  readonly BASE_URL: string
 }
 
 interface ImportMeta {

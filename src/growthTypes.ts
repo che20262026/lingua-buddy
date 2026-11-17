@@ -14,6 +14,8 @@ export type XpSource =
   | 'review' | 'daily' | 'streak' | 'achievement'
   /** [China Learner Track] 完成一个资源单元，内容层复用统一入口 */
   | 'china_track'
+  /** [新增] 大肥鱼自由对话：完成一次人设化总结 */
+  | 'freetalk'
 
 /** 统一发放事件：id 是唯一幂等键 */
 export interface XpEvent {
@@ -156,6 +158,8 @@ export const XP_RULES = {
   pronunciation_pass: 10,
   /** [AI 发音评测] 得分 < 80 的发音评测，鼓励性小额奖励（同样按事件 id 幂等） */
   pronunciation_try: 2,
+  /** [大肥鱼自由对话] 完成一次「结束并总结」（同一天同一条鱼只发一次） */
+  freetalk_summary: 6,
 } as const
 
 /** 明确不发 XP 的行为（供文档与断言引用） */
@@ -184,6 +188,8 @@ export const STREAK_MILESTONES: Array<{ days: number; xp: number }> = [
 export const ACTIVE_ACTIONS = [
   'word_complete', 'scene_finish', 'seminar_finish', 'postwatch_finish', 'review_batch',
   'china_track_complete',
+  /** [新增] 大肥鱼自由对话的一次人设化总结也算一次完整练习 */
+  'freetalk_summary',
 ] as const
 
 /** 每日目标默认 XP（跟随现有 profile.dailyGoal） */

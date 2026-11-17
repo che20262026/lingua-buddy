@@ -63,6 +63,8 @@ export type View =
   /** [China Learner Track] 资源库首页与单元练习页；不新增底部导航项，归入「学习」 */
   | 'chinaTrack'
   | 'chinaUnit'
+  /** [新增] 大肥鱼自由对话：脱离剧本的闲聊沙盒，独立视图 */
+  | 'freeTalk'
 
 export interface Keyword {
   word: string

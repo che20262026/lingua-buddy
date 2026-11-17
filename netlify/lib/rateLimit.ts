@@ -22,12 +22,17 @@
  * 环境变量（只在服务端读取；0 表示该维度不限制）：
  *   RATE_LIMIT_PER_MINUTE  每分钟每 IP 次数上限，默认 5
  *   RATE_LIMIT_PER_DAY     每天每 IP 次数上限，默认 50
+ *
+ * 各端点可用自己的额度档位（对话 5/分钟、评测 5/分钟、自由对话 8/分钟），
+ * 但**必须调用同一个 checkRateLimit()，桶键靠前缀隔离**；
+ * 额度解析统一走本文件导出的 parseLimit()，约定（0 = 关闭、非法值回落默认）
+ * 只在这里定义一次。
  */
 
 const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * 60_000
-const DEFAULT_PER_MINUTE = 5
-const DEFAULT_PER_DAY = 50
+export const DEFAULT_PER_MINUTE = 5
+export const DEFAULT_PER_DAY = 50
 /** 桶表上限：超过后按最后活跃时间淘汰最旧的桶 */
 const MAX_BUCKETS = 5000
 /** 死桶清理的最小时间间隔：避免每次请求都全表扫描 */
@@ -69,12 +74,20 @@ let lastPruneAt = 0
 /** 解析限流配置：非法值回落默认，0 表示关闭该维度 */
 export function readRateLimitConfig(env: NodeJS.ProcessEnv = process.env): RateLimitConfig {
   return {
-    perMinute: toLimit(env.RATE_LIMIT_PER_MINUTE, DEFAULT_PER_MINUTE),
-    perDay: toLimit(env.RATE_LIMIT_PER_DAY, DEFAULT_PER_DAY),
+    perMinute: parseLimit(env.RATE_LIMIT_PER_MINUTE, DEFAULT_PER_MINUTE),
+    perDay: parseLimit(env.RATE_LIMIT_PER_DAY, DEFAULT_PER_DAY),
   }
 }
 
-function toLimit(raw: unknown, fallback: number): number {
+/**
+ * 解析单个额度：非法值回落默认，0 表示关闭该维度。
+ *
+ * 导出成公共工具是有意的：不同端点各有自己的额度档位（对话 5 次/分钟、
+ * 评测 5 次/分钟、自由对话 8 次/分钟），但**解析规则必须只有一份**，
+ * 否则「0 表示关闭」「负数回落默认」这类约定会在三个文件里各写一遍，
+ * 迟早漂移。调用方只负责声明自己的默认值。
+ */
+export function parseLimit(raw: unknown, fallback: number): number {
   if (raw === undefined || raw === null || raw === '') return fallback
   const n = Number(raw)
   if (!Number.isFinite(n) || n < 0) return fallback

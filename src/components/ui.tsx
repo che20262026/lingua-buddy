@@ -34,6 +34,11 @@ const PATHS: Record<string, ReactNode> = {
   flag: <><path d="M5 21V4M5 4h11l-1.5 3.5L16 11H5" /></>,
   trophy: <><path d="M7 4h10v5a5 5 0 0 1-10 0z" /><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8" /></>,
   headphones: <><path d="M4 14v-2a8 8 0 0 1 16 0v2" /><rect x="3" y="13" width="4" height="7" rx="2" /><rect x="17" y="13" width="4" height="7" rx="2" /></>,
+  /** [新增] 大肥鱼：底部导航「鱼塘」用 */
+  fish: <>
+    <path d="M2.6 12c3.1-4.4 7.2-5.9 10.7-4.3 1.9.9 3.4 2.3 4.3 3.4.4.4 1 .4 1.4 0 .9-1.1 2.4-2.5 4.3-3.4 3.5-1.6 7.6-.1 10.7 4.3-3.1 4.4-7.2 5.9-10.7 4.3-1.9-.9-3.4-2.3-4.3-3.4-.4-.4-1-.4-1.4 0-.9 1.1-2.4 2.5-4.3 3.4-3.5 1.6-7.6.1-10.7-4.3Z" />
+    <circle cx="7.4" cy="10.6" r="1.15" fill="currentColor" stroke="none" />
+  </>,
 }
 
 export type IconName = keyof typeof PATHS

@@ -10,7 +10,9 @@ import { LevelUpBanner } from './LevelUpBanner'
 /** [PWA] 新版本只提示、由用户点「立即更新」才 reload；全局唯一挂载点 */
 import { UpdatePrompt } from './UpdatePrompt'
 
-/** [修改点] 追加「文化」「词场」「成长」三项；原有学习/书架/复习/进度/设置顺序与标签不变 */
+/** [修改点] 追加「文化」「词场」「成长」三项；原有学习/书架/复习/进度/设置顺序与标签不变
+ *  [大肥鱼自由对话] 刻意**不**新增底部导航项：底部导航固定 8 项，
+ *  新模块统一从「学习」页的入口卡进入（与 China Learner Track 同策略）。 */
 const NAV: Array<{ view: View; label: string; icon: IconName }> = [
   { view: 'home', label: '学习', icon: 'home' },
   { view: 'library', label: '书架', icon: 'book' },

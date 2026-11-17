@@ -40,6 +40,9 @@ for (const file of ['.env.local', '.env']) {
 
 const { invokeChat } = await import('./netlify/functions/chat.ts')
 const { invokeEvaluate } = await import('./netlify/functions/evaluate.ts')
+const { invokeFreetalk } = await import('./netlify/functions/freetalk.ts')
+/** 人设表：假上游要用它给自由对话生成「还是那条鱼」的回复 */
+const { FAT_FISH_CHARACTERS } = await import('./src/data/fatFishCharacters.ts')
 
 const PORT = Number(process.env.PORT || 3001)
 const useMockUpstream = process.argv.includes('--mock')
@@ -74,6 +77,24 @@ const CANNED_JUDGE = JSON.stringify({
   suggestion: '你的 /θ/ 咬舌音没发准，舌尖要轻触上齿再送气。',
 })
 
+/** 假上游的「自由对话」总结：必须是严格 JSON 字符串（前端按 JSON 解析） */
+const CANNED_FREETALK_SUMMARY = JSON.stringify({
+  feeling: '今天和你聊天超开心的！你说的那几段我全都记住了哦~',
+  pronunciation: '刚才那个 /θ/ 的发音，舌头要稍微伸出来一点哦~ 像小蛇吐信子那样轻轻送气。',
+})
+
+/**
+ * 假上游的自由对话回复：从 System Prompt 里读出角色名，
+ * 再用**该角色的语气词**拼一句——这样连假上游也不会让人设串味。
+ */
+function fakeFreetalkReply(system: string): string {
+  const name = /姓名：([^\n]+)/.exec(system)?.[1]?.trim() ?? ''
+  const character = FAT_FISH_CHARACTERS.find((c) => c.name === name)
+  const tone = character?.toneWords?.[0] ?? 'Well,'
+  const topic = /口语习惯|俚语/.test(system) ? 'that' : 'this'
+  return `${tone} That's a great topic — tell me more about ${topic}, I'm all ears!`
+}
+
 /** 区分对话与评测两条业务线：评测的 user 消息里带 targetWord 字段 */
 function isJudgeRequest(body: unknown): boolean {
   try {
@@ -97,23 +118,30 @@ app.get('/api/health', (_req, res) => {
     port: PORT,
     configured: Boolean(String(process.env.LLM_API_KEY || '').trim()),
     mockUpstream: useMockUpstream,
-    endpoints: ['/api/health', '/.netlify/functions/chat', '/.netlify/functions/evaluate', '/api/chat (legacy)'],
+    endpoints: ['/api/health', '/.netlify/functions/chat', '/.netlify/functions/evaluate', '/.netlify/functions/freetalk', '/api/chat (legacy)'],
   })
 })
 
-/** OpenAI 兼容假上游：支持 stream:true 的 SSE，便于单独测流式透传 */
+  /** OpenAI 兼容假上游：支持 stream:true 的 SSE，便于单独测流式透传 */
 if (useMockUpstream) {
   app.post('/mock/v1/chat/completions', (req, res) => {
-    /* 发音评测与对话共用同一个假上游端点，靠请求内容区分：
-       评测的 user 消息里带 targetWord，返回「考官 JSON」而不是对话 JSON。 */
-    const canned = isJudgeRequest(req.body) ? CANNED_JUDGE : CANNED
+    /* 三条业务线共用同一个假上游端点，靠请求内容区分：
+       ① 评测：user 消息里带 targetWord → 返回「考官 JSON」；
+       ② 自由对话：System Prompt 里带 [TASK:chat] / [TASK:summary] 标记；
+       ③ 对话：其余情况返回对话 DirectorOutput。 */
+    const system = String(req.body?.messages?.[0]?.content || '')
+    const content = system.includes('[TASK:summary]')
+      ? CANNED_FREETALK_SUMMARY
+      : system.includes('[TASK:chat]')
+        ? fakeFreetalkReply(system)
+        : (isJudgeRequest(req.body) ? CANNED_JUDGE : CANNED)
     const stream = req.body?.stream === true
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-store')
       res.flushHeaders?.()
-      const mid = Math.floor(canned.length / 2)
-      for (const part of [canned.slice(0, mid), canned.slice(mid)]) {
+      const mid = Math.floor(content.length / 2)
+      for (const part of [content.slice(0, mid), content.slice(mid)]) {
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}\n\n`)
       }
       res.write('data: [DONE]\n\n')
@@ -122,7 +150,7 @@ if (useMockUpstream) {
     }
     res.json({
       id: 'local-mock-chat-1', model: 'mock-dialogue',
-      choices: [{ index: 0, message: { role: 'assistant', content: canned }, finish_reason: 'stop' }],
+      choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 12, completion_tokens: 48, total_tokens: 60 },
     })
   })
@@ -191,10 +219,35 @@ app.all(['/.netlify/functions/evaluate'], async (req, res) => {
   }
 })
 
+/**
+ * [大肥鱼自由对话] 第三个函数端点：
+ * 同样复用 netlify/functions/freetalk.ts 的 invokeFreetalk —— 本地跑的就是生产那份代码。
+ * 限流桶带 freetalk: 前缀，与对话桶（裸 IP）、评测桶（eval: + IP）三方互不干扰。
+ */
+app.all(['/.netlify/functions/freetalk'], async (req, res) => {
+  try {
+    const result = await invokeFreetalk({
+      method: req.method,
+      body: req.body,
+      headers: toClientHeaders(req),
+    })
+    res.status(result.statusCode)
+    for (const [name, value] of Object.entries(result.headers)) res.setHeader(name, value)
+    res.end(result.body)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (!res.headersSent) {
+      res.status(503).json({ ok: false, fallback: true, error: `本地后端异常：${message}` })
+    } else {
+      res.end()
+    }
+  }
+})
+
 app.use((_req, res) => {
   res.status(404).json({
     ok: false, fallback: true,
-    error: '未知接口；本地仅提供 /api/health、/.netlify/functions/chat、/.netlify/functions/evaluate 与 legacy /api/chat',
+    error: '未知接口；本地仅提供 /api/health、/.netlify/functions/chat、/.netlify/functions/evaluate、/.netlify/functions/freetalk 与 legacy /api/chat',
   })
 })
 
@@ -218,6 +271,7 @@ const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/api/health`)
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/chat  （主路径）`)
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/evaluate  （AI 发音评测）`)
+  console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/freetalk  （大肥鱼自由对话）`)
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/api/chat  （legacy 兼容）`)
   console.log(`[LOCAL-SERVER] 模式: ${mode}`)
   console.log('[LOCAL-SERVER] Vite dev 的 /.netlify/functions 与 /api 已代理到 http://127.0.0.1:' + PORT)

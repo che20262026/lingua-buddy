@@ -184,6 +184,25 @@ export function Home() {
         <Icon name="right" size={16} className="shrink-0 text-muted" />
       </button>
 
+      {/* [新增] 大肥鱼自由对话指路牌：没有剧本的闲聊沙盒，同样不新增底部导航项 */}
+      <button type="button" onClick={() => navigate('freeTalk')}
+        data-testid="home-freetalk-entry"
+        className="card animate-in flex w-full items-center gap-3.5 p-4 text-left transition hover:border-brand-300">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+          <Icon name="fish" size={24} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-sm font-bold text-ink">大肥鱼自由对话</p>
+            <Chip tone="brand" className="!px-2 !py-0.5 !text-[10px]">NEW · 6 条鱼</Chip>
+          </div>
+          <p className="mt-0.5 truncate text-xs text-muted">
+            没有剧本，挑一条有脾气的胖鱼，用英 / 美 / 澳口音瞎聊
+          </p>
+        </div>
+        <Icon name="right" size={16} className="shrink-0 text-muted" />
+      </button>
+
       {/* 输入区 */}
       <Card className="animate-in">
         <SectionTitle title="今天想聊哪一段英文？" subtitle="粘贴、上传，或者直接拿示例文本开一场冒险。" />

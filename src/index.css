@@ -242,6 +242,108 @@ details > summary::-webkit-details-marker { display: none; }
   .skeleton-track { animation: none; }
   .skeleton-track { width: 100%; opacity: 0.45; }
   .animate-in { animation: none; }
+  /* [大肥鱼] 朗读动作全部关掉：形象仍然清晰可辨，只是不再蹦跶 */
+  .ff-avatar,
+  .ff-avatar-speaking { animation: none !important; }
+}
+
+/* ---------------- [新增] 大肥鱼自由对话：形象动画与主题色 ----------------
+ * 主题色通过 CSS 变量下发：切换角色时只改变量，组件代码一行不动。
+ *   --ff-bg-from / --ff-bg-to  页面渐变
+ *   --ff-accent / --ff-accent-ink  强调色 / 可读文字色（正文对比度 ≥ 4.5:1）
+ *   --ff-bubble / --ff-ring / --ff-glow  气泡底 / 描边 / 氛围光
+ * 动效只动 transform 与 opacity；全部在 prefers-reduced-motion: reduce 下关闭。
+ */
+
+.ff-stage {
+  background:
+    radial-gradient(46rem 30rem at 18% -12%, var(--ff-glow) 0%, transparent 62%),
+    radial-gradient(38rem 26rem at 108% 6%, var(--ff-glow) 0%, transparent 58%),
+    linear-gradient(170deg, var(--ff-bg-from) 0%, var(--ff-bg-to) 100%);
+  transition: background 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ff-bubble {
+  background: var(--ff-bubble);
+  border-color: var(--ff-ring);
+}
+
+.ff-accent-text { color: var(--ff-accent-ink); }
+.ff-accent-bg { background: var(--ff-accent); }
+.ff-accent-border { border-color: var(--ff-ring); }
+
+/* 形象容器：静止时只有极轻的呼吸感，绝不喧宾夺主 */
+.ff-avatar {
+  transform-origin: 50% 88%;
+  will-change: transform;
+}
+
+/* —— 精灵：高频蹦跳（跳跃幅度小、频率高，像原地蹦跶的小精灵） —— */
+@keyframes ff-bounce {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  22%      { transform: translateY(-16%) scale(0.97, 1.04); }
+  46%      { transform: translateY(0) scale(1.03, 0.96); }
+  70%      { transform: translateY(-8%) scale(0.98, 1.02); }
+}
+
+/* —— 萝莉：左右摇摆（幅度大、节奏慢，像在摇头晃脑） —— */
+@keyframes ff-sway {
+  0%, 100% { transform: rotate(-7deg) translateX(0); }
+  25%      { transform: rotate(7deg) translateX(6%); }
+  50%      { transform: rotate(-4deg) translateX(0); }
+  75%      { transform: rotate(5deg) translateX(-4%); }
+}
+
+/* —— 御姐：缓慢慵懒的上下浮动（幅度最小、周期最长） —— */
+@keyframes ff-float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50%      { transform: translateY(-9%) rotate(1deg); }
+}
+
+/* —— 社畜：疲惫的细碎抖动 —— */
+@keyframes ff-jitter {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  20%      { transform: translate(-1.4px, 0.8px) rotate(-0.8deg); }
+  40%      { transform: translate(1.2px, -0.8px) rotate(0.7deg); }
+  60%      { transform: translate(-0.9px, 0.5px) rotate(-0.5deg); }
+  80%      { transform: translate(1.4px, 0.6px) rotate(0.9deg); }
+}
+
+/* —— 摇滚：甩头（旋转 + 上下顶） —— */
+@keyframes ff-rock {
+  0%, 100% { transform: rotate(-5deg) translateY(0); }
+  25%      { transform: rotate(5deg) translateY(-6%); }
+  50%      { transform: rotate(-3deg) translateY(0); }
+  75%      { transform: rotate(6deg) translateY(-4%); }
+}
+
+/* —— 冲浪：随浪起伏（缓慢、带一点点左右偏摆） —— */
+@keyframes ff-bob {
+  0%, 100% { transform: translateY(-4%) rotate(-3deg); }
+  50%      { transform: translateY(5%) rotate(3deg); }
+}
+
+/* 朗读时才真正播放动作；未朗读时只保留极轻的呼吸 */
+@keyframes ff-idle {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-2%) scale(1.01); }
+}
+
+.ff-avatar:not(.ff-avatar-speaking) {
+  animation: ff-idle 4.2s ease-in-out infinite;
+}
+
+.ff-avatar-speaking.ff-motion-bounce { animation: ff-bounce 0.46s cubic-bezier(0.3, 0.9, 0.4, 1) infinite; }
+.ff-avatar-speaking.ff-motion-sway { animation: ff-sway 1.05s ease-in-out infinite; }
+.ff-avatar-speaking.ff-motion-float { animation: ff-float 3.4s ease-in-out infinite; }
+.ff-avatar-speaking.ff-motion-jitter { animation: ff-jitter 0.42s linear infinite; }
+.ff-avatar-speaking.ff-motion-rock { animation: ff-rock 0.72s ease-in-out infinite; }
+.ff-avatar-speaking.ff-motion-bob { animation: ff-bob 2.1s ease-in-out infinite; }
+
+/* 说话时气泡上的「声波」小圆点 */
+@keyframes ff-wave {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.45; }
+  40%           { transform: translateY(-5px); opacity: 1; }
 }
 
 /* ---------------- [新增] Netlify 注入徽章 / 右下角浮标：强制隐藏 ----------------
