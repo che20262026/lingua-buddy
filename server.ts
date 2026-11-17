@@ -39,6 +39,7 @@ for (const file of ['.env.local', '.env']) {
 }
 
 const { invokeChat } = await import('./netlify/functions/chat.ts')
+const { invokeEvaluate } = await import('./netlify/functions/evaluate.ts')
 
 const PORT = Number(process.env.PORT || 3001)
 const useMockUpstream = process.argv.includes('--mock')
@@ -67,6 +68,20 @@ const CANNED = JSON.stringify({
   effective: true,
 })
 
+/** 假上游的「发音考官」回复：形状必须与真实上游一致（外层 choices + 内层 JSON 字符串） */
+const CANNED_JUDGE = JSON.stringify({
+  score: 88,
+  suggestion: '你的 /θ/ 咬舌音没发准，舌尖要轻触上齿再送气。',
+})
+
+/** 区分对话与评测两条业务线：评测的 user 消息里带 targetWord 字段 */
+function isJudgeRequest(body: unknown): boolean {
+  try {
+    const messages = (body as { messages?: Array<{ content?: string }> })?.messages
+    return Array.isArray(messages) && messages.some((m) => String(m?.content || '').includes('targetWord'))
+  } catch { return false }
+}
+
 const app = express()
 app.disable('x-powered-by')
 /* 本地开发服务；浏览器经 Vite 代理访问时本就是同源，这里额外允许直连 / curl */
@@ -82,20 +97,23 @@ app.get('/api/health', (_req, res) => {
     port: PORT,
     configured: Boolean(String(process.env.LLM_API_KEY || '').trim()),
     mockUpstream: useMockUpstream,
-    endpoints: ['/api/health', '/.netlify/functions/chat', '/api/chat (legacy)'],
+    endpoints: ['/api/health', '/.netlify/functions/chat', '/.netlify/functions/evaluate', '/api/chat (legacy)'],
   })
 })
 
 /** OpenAI 兼容假上游：支持 stream:true 的 SSE，便于单独测流式透传 */
 if (useMockUpstream) {
   app.post('/mock/v1/chat/completions', (req, res) => {
+    /* 发音评测与对话共用同一个假上游端点，靠请求内容区分：
+       评测的 user 消息里带 targetWord，返回「考官 JSON」而不是对话 JSON。 */
+    const canned = isJudgeRequest(req.body) ? CANNED_JUDGE : CANNED
     const stream = req.body?.stream === true
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream')
       res.setHeader('Cache-Control', 'no-store')
       res.flushHeaders?.()
-      const mid = Math.floor(CANNED.length / 2)
-      for (const part of [CANNED.slice(0, mid), CANNED.slice(mid)]) {
+      const mid = Math.floor(canned.length / 2)
+      for (const part of [canned.slice(0, mid), canned.slice(mid)]) {
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}\n\n`)
       }
       res.write('data: [DONE]\n\n')
@@ -104,20 +122,62 @@ if (useMockUpstream) {
     }
     res.json({
       id: 'local-mock-chat-1', model: 'mock-dialogue',
-      choices: [{ index: 0, message: { role: 'assistant', content: CANNED }, finish_reason: 'stop' }],
+      choices: [{ index: 0, message: { role: 'assistant', content: canned }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 12, completion_tokens: 48, total_tokens: 60 },
     })
   })
 }
 
 /**
- * 核心路由：把 Express 请求转成 invokeChat() 期望的最小形状后委托出去，
+ * 把 Express 请求头归一化后透传给核心函数：
+ * 限流从中取客户端 IP，本地才与线上同一套判定。
+ */
+function toClientHeaders(req: express.Request): Record<string, string | undefined> {
+  const headers: Record<string, string | undefined> = {}
+  for (const [name, value] of Object.entries(req.headers)) {
+    headers[name] = Array.isArray(value) ? value[0] : value
+  }
+  return headers
+}
+
+/**
+ * 核心路由：把 Express 请求转成核心函数期望的最小形状后委托出去，
  * 再把 { statusCode, headers, body } 写回响应。
- * 两条路径共用同一个核心，且都保留前缀（Vite proxy 不做 rewrite）。
+ * 路径都保留前缀（Vite proxy 不做 rewrite）。
  */
 app.all(['/.netlify/functions/chat', '/api/chat'], async (req, res) => {
   try {
-    const result = await invokeChat({ method: req.method, body: req.body, query: req.query })
+    const result = await invokeChat({
+      method: req.method,
+      body: req.body,
+      query: req.query,
+      headers: toClientHeaders(req),
+    })
+    res.status(result.statusCode)
+    for (const [name, value] of Object.entries(result.headers)) res.setHeader(name, value)
+    res.end(result.body)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (!res.headersSent) {
+      res.status(503).json({ ok: false, fallback: true, error: `本地后端异常：${message}` })
+    } else {
+      res.end()
+    }
+  }
+})
+
+/**
+ * [AI 发音评测] 与 chat 同源的第二个函数端点：
+ * 同样复用 netlify/functions/evaluate.ts 的 invokeEvaluate —— 本地跑的就是生产那份代码。
+ * 限流桶带 eval: 前缀，与对话桶互相独立。
+ */
+app.all(['/.netlify/functions/evaluate'], async (req, res) => {
+  try {
+    const result = await invokeEvaluate({
+      method: req.method,
+      body: req.body,
+      headers: toClientHeaders(req),
+    })
     res.status(result.statusCode)
     for (const [name, value] of Object.entries(result.headers)) res.setHeader(name, value)
     res.end(result.body)
@@ -134,7 +194,7 @@ app.all(['/.netlify/functions/chat', '/api/chat'], async (req, res) => {
 app.use((_req, res) => {
   res.status(404).json({
     ok: false, fallback: true,
-    error: '未知接口；本地仅提供 /api/health、/.netlify/functions/chat 与 legacy /api/chat',
+    error: '未知接口；本地仅提供 /api/health、/.netlify/functions/chat、/.netlify/functions/evaluate 与 legacy /api/chat',
   })
 })
 
@@ -157,6 +217,7 @@ const server = app.listen(PORT, '127.0.0.1', () => {
   console.log('[LOCAL-SERVER] Express 后端已启动（纯本地，无需 Netlify CLI / 账号登录）')
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/api/health`)
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/chat  （主路径）`)
+  console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/evaluate  （AI 发音评测）`)
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/api/chat  （legacy 兼容）`)
   console.log(`[LOCAL-SERVER] 模式: ${mode}`)
   console.log('[LOCAL-SERVER] Vite dev 的 /.netlify/functions 与 /api 已代理到 http://127.0.0.1:' + PORT)

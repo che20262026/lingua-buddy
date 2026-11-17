@@ -23,6 +23,12 @@
  *   GET  → 模式探测 { ok, mode, configured, provider, model, message }，永不返回密钥
  *   POST → { messages, level, stream? }；成功 { ok:true, mode:'live', content, model, provider }
  *          任何失败 { ok:false, fallback:true, error:'友好提示' } + 5xx，前端据此回退 Mock
+ *   限流 → 429 { ok:false, fallback:true, rateLimited:true, scope, error:'中文提示' }
+ *          附 Retry-After 与 X-RateLimit-* 头；前端照样回退 Mock，只是额外弹一张友好卡片
+ *
+ * [防刷限流] 见 netlify/lib/rateLimit.ts：纯内存 Map，按 IP 双窗口计数
+ * （默认每分钟 5 次、每天 50 次，仅 POST 计数）。Serverless 实例级近似限流，
+ * 挡得住随手刷屏，挡不住分布式攻击——需要更强时换成 Redis 之类的共享存储。
  *
  * ⚠️ 两处平台适配（与 api/chat.ts 的唯一差异，均不改变对前端的契约）：
  * 1. 标准 Netlify Functions 是「缓冲式」响应，不能逐块 flush。stream:true 时
@@ -31,6 +37,8 @@
  * 2. Netlify 同步函数默认执行上限约 10s，因此上游超时取 9s（Vercel 版是 15s），
  *    保证一定由本函数返回可降级的 JSON，而不是被平台切断成无 fallback 的 502。
  */
+
+import { checkRateLimit, clientIp, readRateLimitConfig, rateLimitHeaders, type RateLimitDecision } from '../lib/rateLimit'
 
 type ChatRole = 'system' | 'user' | 'assistant'
 interface WireMessage { role: ChatRole; content: string }
@@ -54,6 +62,8 @@ export interface ChatRequest {
   method?: string
   body?: unknown
   query?: Record<string, unknown>
+  /** 请求头：限流需要从中取客户端 IP（Netlify 事件头 / Express req.headers） */
+  headers?: Record<string, string | undefined>
 }
 export interface ChatResult {
   statusCode: number
@@ -71,6 +81,31 @@ const UPSTREAM_TIMEOUT_MS = 9_000
 /** 统一降级外壳：前端看到 fallback:true 就知道该用 Mock 了 */
 function fallbackBody(error: string) {
   return { ok: false, fallback: true as const, error }
+}
+
+/**
+ * [防刷限流] 429 响应：中文提示 + Retry-After + 额度观测头。
+ * 关键约定：仍然带 fallback:true —— 前端据此照旧回退本地 Mock，
+ * 练习不中断，只是额外弹出一张「请求太频繁」的友好卡片，绝不白屏。
+ */
+function rateLimitedResult(decision: RateLimitDecision): ChatResult {
+  const message = decision.scope === 'day' ? '今日额度已用完' : '请求太频繁，请稍后再试'
+  return {
+    statusCode: 429,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      ...NO_STORE,
+      ...rateLimitHeaders(decision),
+    },
+    body: JSON.stringify({
+      ok: false,
+      fallback: true,
+      rateLimited: true,
+      scope: decision.scope === 'day' ? 'day' : 'minute',
+      error: message,
+      retryAfterSeconds: decision.retryAfterSeconds,
+    }),
+  }
 }
 
 const NO_STORE = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }
@@ -174,6 +209,15 @@ export async function invokeChat(req: ChatRequest): Promise<ChatResult> {
     if (method !== 'POST') return jsonResult(405, fallbackBody('仅支持 GET / POST 请求'))
     if (!key) return jsonResult(503, fallbackBody('服务端未配置 LLM_API_KEY，已自动回退本地 Mock 演示。'))
 
+    /**
+     * [防刷限流] 只对真正消耗大模型额度的 POST 计数：
+     * GET 能力探测不消耗额度，因此永不计数（否则打开设置页就会吃掉配额）。
+     * 判定顺序刻意放在「未配密钥 → 503」之后：没有上游调用就没有滥用成本，
+     * 不该用 429 盖住「服务端未配置密钥」这个更准确的信息。
+     */
+    const decision = checkRateLimit(clientIp(req.headers), readRateLimitConfig())
+    if (!decision.allowed) return rateLimitedResult(decision)
+
     const body = parseBody(req.body)
     const level = levelOf(body.level)
     const messages = buildMessages(body.messages, level)
@@ -256,6 +300,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResult> => {
       method: event.httpMethod || 'GET',
       body: rawBody,
       query: (event.queryStringParameters || {}) as Record<string, unknown>,
+      headers: event.headers,
     })
     return { statusCode: result.statusCode, headers: result.headers, body: result.body }
   } catch (err) {

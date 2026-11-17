@@ -13,6 +13,8 @@ import { EFFECTIVE_RULE_PROMPT, isEffectiveTurn } from './effectiveTurn'
 import { clampToLevel, fitCorrectionToLevel, levelProfilePrompt } from '../voiceTypes'
 /** [真实 AI] /api/chat 模式探测 + 超时保护；探测失败一律静默回退 Mock */
 import { AI_ENDPOINT, createRequestSignal, probeAiMode } from './aiStatus'
+/** [AI 错误信号] 服务端返回 4xx/5xx 时，把状态码与中文提示投递到只读信箱，供页面层弹友好卡片 */
+import { parseServerErrorMessage, recordAiErrorStatus } from './aiErrorSignal'
 
 /* ================================================================
  * Agent 2 —— DialogueDirectorAgent
@@ -602,6 +604,13 @@ export function createServerlessGenerator(): GenerateDialogue {
         }),
       })
       const raw = await res.text()
+      /**
+       * [AI 错误信号] 命中任何失败状态码（401 / 429 / 500 …）：先把状态码与
+       * 服务端中文提示投递到只读信箱，再照常走下面的降级分支回退本地 Mock
+       * —— 练习不中断，提示由页面层翻译成对话气泡里的系统提示。
+       * 不依赖浏览器特性，Safari / Firefox 同样能拿到精确码。
+       */
+      if (!res.ok) recordAiErrorStatus(res.status, parseServerErrorMessage(raw))
       const data = JSON.parse(raw) as { ok?: boolean; content?: string; error?: string }
       if (!res.ok || !data.ok || typeof data.content !== 'string') {
         throw new Error(data.error || `HTTP ${res.status}`)

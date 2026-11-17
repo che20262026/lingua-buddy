@@ -61,19 +61,25 @@ create trigger trg_user_data_updated_at
 
 -- -----------------------------------------------------------------------------
 -- 4. 表级权限 + RLS（用户只能读写自己的数据）
+--    ⚠️ 本节与 supabase/rls_user_data.sql 保持一致（RLS 复查版，两处语义必须相同）
+--    · revoke from public：PostgreSQL 的 PUBLIC 是伪角色，代表「所有人」，
+--      不显式收回就等于给表留了一道谁都能走的后门
+--    · revoke from anon：未登录访客一律无权访问（哪怕拿到 anon key）
+--    · 只授予 select / insert / update：应用从不删行，没必要留 delete 口子
 -- -----------------------------------------------------------------------------
+revoke all on public.user_data from public;
 revoke all on public.user_data from anon;
-grant select, insert, update, delete on public.user_data to authenticated;
+grant select, insert, update on public.user_data to authenticated;
 
 alter table public.user_data enable row level security;
 
--- select：只能看到自己的行
+-- select：只能看到自己的行（未登录时 auth.uid() 为 NULL，一行都拿不到）
 drop policy if exists "user_data_select_own" on public.user_data;
 create policy "user_data_select_own" on public.user_data
   for select to authenticated
   using (auth.uid() = user_id);
 
--- insert：不能把数据挂到别人名下
+-- insert：不能把数据挂到别人名下（with check 管的是写进去的那一行）
 drop policy if exists "user_data_insert_own" on public.user_data;
 create policy "user_data_insert_own" on public.user_data
   for insert to authenticated
@@ -87,11 +93,9 @@ create policy "user_data_update_own" on public.user_data
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- delete：只能删自己的行
+-- delete：已移除。需求只允许 select / insert / update；
+-- 若将来要加「清空我的云端数据」，把 grant delete 与下面的策略加回来即可
 drop policy if exists "user_data_delete_own" on public.user_data;
-create policy "user_data_delete_own" on public.user_data
-  for delete to authenticated
-  using (auth.uid() = user_id);
 
 -- -----------------------------------------------------------------------------
 -- 5. 便捷 upsert RPC（可选）
@@ -102,6 +106,7 @@ create policy "user_data_delete_own" on public.user_data
 create or replace function public.upsert_user_data(p_data_type text, p_json_data jsonb)
 returns public.user_data
 language plpgsql
+security invoker
 set search_path = ''
 as $$
 declare
@@ -124,6 +129,9 @@ $$;
 
 revoke all on function public.upsert_user_data(text, jsonb) from public;
 grant execute on function public.upsert_user_data(text, jsonb) to authenticated;
+
+/* 触发器函数：PostgreSQL 默认把 EXECUTE 授予 PUBLIC，这里收回（它只由触发器调用） */
+revoke all on function public.set_user_data_updated_at() from public;
 
 -- -----------------------------------------------------------------------------
 -- 6. 三类核心数据 → data_type / json_data 形态（对照前端 src/types.ts）

@@ -45,6 +45,12 @@ export interface AiErrorCopy {
   hint: string
   /** 重试按钮文案 */
   action: string
+  /**
+   * 语气分级：warm = 暖珊瑚（可安抚的暂时性问题，如限流 / 断网）；
+   * danger = 红（服务端故障或鉴权失败——这确实是"系统坏了"，该 alarming 就 alarming）。
+   * 颜色只是辅助，语义永远由 label + title + hint 文字承载。
+   */
+  severity: 'warm' | 'danger'
 }
 
 /* ---------------- 模块级发布 / 订阅（不写 localStorage、不新增持久化键） ---------------- */
@@ -99,55 +105,57 @@ export function codeFromStatus(status: number): AiErrorCode {
 const COPY: Record<AiErrorCode, AiErrorCopy> = {
   400: {
     label: '请求没被接受', title: 'AI 正在开小差，请稍后再试',
-    hint: '服务端没能理解这次请求。稍等片刻重试一次，或继续使用本地演示练习。', action: '重试',
+    hint: '服务端没能理解这次请求。稍等片刻重试一次，或继续使用本地演示练习。', action: '重试', severity: 'warm',
   },
   401: {
-    label: '密钥校验未通过', title: 'AI 正在开小差，请稍后再试',
-    hint: '服务端的大模型密钥可能无效或已过期，请检查部署环境的 LLM_API_KEY 配置。', action: '重试',
+    label: '密钥校验未通过', title: 'AI 老师暂时联系不上，请稍后再试',
+    hint: '服务端的密钥校验没通过（LLM_API_KEY 无效或已过期）——这是配置问题，不是你的错。稍后重试；本地演示已接管，练习不会中断。', action: '重试', severity: 'danger',
   },
   402: {
     label: '账户额度', title: '余额不足，AI 暂时休息一下',
-    hint: '大模型账户额度已用尽。充值后重试；这期间本地演示会继续陪你练习。', action: '重试',
+    hint: '大模型账户额度已用尽。充值后重试；这期间本地演示会继续陪你练习。', action: '重试', severity: 'warm',
   },
   403: {
-    label: '访问被拒绝', title: 'AI 正在开小差，请稍后再试',
-    hint: '服务端拒绝了这次调用，通常是密钥权限或模型白名单问题。', action: '重试',
+    label: '访问被拒绝', title: 'AI 老师被门卫拦下了，请稍后再试',
+    hint: '服务端拒绝了这次调用，通常是密钥权限或模型白名单问题。重试无效时请联系维护者。', action: '重试', severity: 'danger',
   },
   404: {
     label: '接口未找到', title: 'AI 正在开小差，请稍后再试',
-    hint: '没有找到 /.netlify/functions/chat 函数。本地请用 npm run dev:full 同时启动前后端；线上请确认 Netlify 函数已部署。', action: '重试',
+    hint: '没有找到 /.netlify/functions/chat 函数。本地请用 npm run dev:full 同时启动前后端；线上请确认 Netlify 函数已部署。', action: '重试', severity: 'warm',
   },
   408: {
     label: '响应超时', title: 'AI 想得太久了，请稍后再试',
-    hint: '上游模型在 9 秒内没有回话。网络恢复或稍等后重试即可。', action: '重试',
+    hint: '上游模型在 9 秒内没有回话。网络恢复或稍等后重试即可。', action: '重试', severity: 'warm',
   },
   429: {
-    label: '请求太密集', title: 'AI 有点忙，歇一下再试',
-    hint: '触发了服务商限流。等几十秒再点重试，本地演示不受影响。', action: '稍后重试',
+    label: '请求太频繁',
+    title: 'AI 有点忙，歇一下再试',
+    hint: '触发了服务端限流保护（默认每分钟 5 次、每天 50 次，可用环境变量调整）。等几十秒再点重试；本地演示已接管，练习不会中断。',
+    action: '稍后重试', severity: 'warm',
   },
   500: {
-    label: '服务端异常', title: 'AI 正在开小差，请稍后再试',
-    hint: '大模型服务内部出错了。稍后重试；连续失败请查看 Netlify 函数日志。', action: '重试',
+    label: '服务端异常', title: 'AI 老师正在休息，请稍后再试',
+    hint: 'AI 服务内部出了点状况，暂时罢工了。稍后点重试；本地演示已接管，练习不会中断。', action: '重试', severity: 'danger',
   },
   502: {
-    label: '上游网关异常', title: 'AI 正在开小差，请稍后再试',
-    hint: '服务端没能连上大模型供应商，通常是上游临时故障。', action: '重试',
+    label: '上游网关异常', title: 'AI 老师正在休息，请稍后再试',
+    hint: '服务端没能连上大模型供应商，通常是上游临时故障。稍后重试即可。', action: '重试', severity: 'danger',
   },
   503: {
-    label: '服务暂不可用', title: 'AI 正在开小差，请稍后再试',
-    hint: '服务正在维护或未配置密钥。稍后重试，或先用本地演示继续。', action: '重试',
+    label: '服务暂不可用', title: 'AI 老师正在休息，请稍后再试',
+    hint: '服务正在维护或未配置密钥。稍后重试，或先用本地演示继续。', action: '重试', severity: 'danger',
   },
   504: {
     label: '网关超时', title: 'AI 想得太久了，请稍后再试',
-    hint: '请求在网关层超时了。稍等片刻重试一次即可。', action: '重试',
+    hint: '请求在网关层超时了。稍等片刻重试一次即可。', action: '重试', severity: 'warm',
   },
   network: {
     label: '网络未连通', title: '网络好像断开了',
-    hint: '检查一下网络后重试。本地演示完全离线，随时可以继续练习。', action: '重试',
+    hint: '检查一下网络后重试。本地演示完全离线，随时可以继续练习。', action: '重试', severity: 'warm',
   },
   unknown: {
     label: 'AI 未响应', title: 'AI 正在开小差，请稍后再试',
-    hint: '这次没能拿到真实 AI 的回复，已自动切到本地演示，练习不会中断。', action: '重试',
+    hint: '这次没能拿到真实 AI 的回复，已自动切到本地演示，练习不会中断。', action: '重试', severity: 'warm',
   },
 }
 
@@ -177,7 +185,12 @@ export function observeChatHttpStatus(): () => void {
         if (timing.startTime < startedAt) continue
         const status = typeof timing.responseStatus === 'number' ? timing.responseStatus : 0
         if (status < 400) continue
-        reportAiError(codeFromStatus(status), `HTTP ${status}`, status)
+        const code = codeFromStatus(status)
+        /* [AI 错误信号] 前端 fetch 已抓到服务端的中文提示并发布过同一个错误码时，
+           这里不再用通用的「HTTP xxx」覆盖它——那句中文才是用户该看到的。
+           只在已有同码且带「具体提示」时才跳过，通用诊断仍照常发布。 */
+        if (current?.code === code && !/^HTTP \d+$/.test(current.detail || '')) continue
+        reportAiError(code, `HTTP ${status}`, status)
       }
     })
     observer.observe({ type: 'resource', buffered: true })

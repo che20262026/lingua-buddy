@@ -58,24 +58,31 @@ public.user_data
 
 ## 五、RLS（行级安全）
 
-`alter table public.user_data enable row level security;` + `revoke all ... from anon;` + 仅授予 `authenticated` 增删改查。
+`alter table public.user_data enable row level security;` + `revoke all ... from public, anon;` + 仅授予 `authenticated` 的 `select / insert / update`。
 
 | 策略 | 操作 | `using` | `with check` |
 |---|---|---|---|
 | `user_data_select_own` | SELECT | `auth.uid() = user_id` | — |
 | `user_data_insert_own` | INSERT | — | `auth.uid() = user_id` |
 | `user_data_update_own` | UPDATE | `auth.uid() = user_id` | `auth.uid() = user_id` |
-| `user_data_delete_own` | DELETE | `auth.uid() = user_id` | — |
 
-四条全部带 `to authenticated`。`update` 必须同时写 `using` 与 `with check`，否则用户能把 `user_id` 改成别人后越权保存。
+三条全部带 `to authenticated`。`update` 必须同时写 `using` 与 `with check`，否则用户能把 `user_id` 改成别人后越权保存。
+
+> **为什么没有 DELETE**：前端只用 `select` 与 `upsert`，从不需要删行；不授予 delete 就少一个口子。
+> 将来若要加「清空我的云端数据」，把 `grant delete on public.user_data to authenticated;` 与
+> `create policy "user_data_delete_own" ... for delete to authenticated using (auth.uid() = user_id);` 加回来即可。
+
+> **为什么要 `revoke ... from public`**：PostgreSQL 的 `PUBLIC` 是伪角色，代表「所有人」。
+> 只 revoke `anon` 而留着 `PUBLIC`，等于给表留了一道谁都能走的后门。
+> 另外，未登录时 `auth.uid()` 为 `NULL`，`NULL = user_id` 不成立 —— 匿名请求一行都拿不到。
 
 > `public` schema 会被 PostgREST 自动暴露：没开 RLS 等于把表公开给任何持有 anon key 的人。
 > `service_role` 天然绕过 RLS，只能放在服务端，**绝不进前端代码**。
 
 ## 六、便捷 RPC
 
-`public.upsert_user_data(p_data_type text, p_json_data jsonb)` — 默认 `SECURITY INVOKER`，RLS 仍生效；
-`user_id` 一律取 `auth.uid()`，不接受客户端传入。仅授予 `authenticated` 执行权限。
+`public.upsert_user_data(p_data_type text, p_json_data jsonb)` — 显式 `SECURITY INVOKER`，RLS 仍生效；
+`user_id` 一律取 `auth.uid()`，不接受客户端传入。仅授予 `authenticated` 执行权限，`PUBLIC` 已收回。
 
 ```ts
 // 读取
@@ -96,7 +103,7 @@ await supabase.rpc('upsert_user_data', {
 3. **`json_data` 允许 object 或 array**：profile 是对象，错题本与复习队列是数组，一个约束同时容纳。
 4. **`data_type` 用宽松正则而非枚举/CHECK 列表**：新增本地键不需要 `ALTER TABLE`，满足"方便以后扩展"。
 5. **`updated_at` 触发器**：多设备同步时用它判断哪边更新，避免"登录即无条件覆盖"把真实数据冲掉。
-6. **RLS 四条策略 + revoke anon**：读、写、改、删四个方向都封死，且匿名流量完全无权。
+6. **RLS 三条策略 + revoke public/anon**：读、写、改三个方向都封死，匿名流量完全无权，且不授予应用用不到的 delete。
 
 ## 八、在 Supabase SQL Editor 中执行
 
@@ -104,8 +111,14 @@ await supabase.rpc('upsert_user_data', {
 2. 把 `supabase/migrations/20261114190000_create_user_data.sql` 整段粘贴进去
 3. 点 **Run**（或 `Ctrl + Enter`）→ 应显示 `Success. No rows returned`
 4. **Table Editor** 里出现 `user_data`，表名旁 RLS 徽标为已启用
-5. **Authentication → Policies** 里能看到 4 条 `user_data_*_own` 策略
+5. **Authentication → Policies** 里能看到 3 条 `user_data_*_own` 策略（select / insert / update）
 6. 可选验证：SQL 文件第 7 段取消注释、把 `<your-user-uuid>` 换成真实用户 UUID 后单独运行，确认只能查到自己的行
    （SQL Editor 以 `postgres` 超级用户运行会绕过 RLS，必须 `set local role authenticated` 才能验证）
 
 脚本全程幂等（`if not exists` / `drop policy if exists` / `create or replace`），重复执行不会产生重复对象或报错。
+
+### 只做 RLS 复查（表已存在时）
+
+单独执行 `supabase/rls_user_data.sql`：它只动策略与授权，不碰表结构，
+末尾附三条只读查询（RLS 开关 / 策略清单 / 表级授权），跑完即可自查，
+另有一段注释掉的越权模拟测试可手动取消注释执行。

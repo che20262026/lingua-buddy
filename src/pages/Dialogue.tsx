@@ -7,11 +7,13 @@ import { TypewriterText } from '../components/TypewriterText'
 import { ThinkingSkeleton } from '../components/ThinkingSkeleton'
 import { AiErrorCard } from '../components/AiErrorCard'
 import {
-  clearAiError, getAiError, observeChatHttpStatus, reportAiError, subscribeAiError,
+  clearAiError, codeFromStatus, getAiError, observeChatHttpStatus, reportAiError, subscribeAiError,
   type AiErrorState,
 } from '../components/aiErrorChannel'
 /** 只读探测：用于判断「本该走真实 AI 却回退了 Mock」，不发起新请求逻辑 */
 import { probeAiMode } from '../services/aiStatus'
+/** [AI 错误信号] 取走服务层投递的状态码与中文提示，翻译成对话气泡里的系统提示 */
+import { takeAiErrorSignal } from '../services/aiErrorSignal'
 import { coachSession } from '../services/coach'
 import {
   copyPageLink, describeSpeechSupport, openInNewTab, pageLink, speak,
@@ -364,6 +366,15 @@ export function Dialogue() {
     }
     /* await 之后的唯一闸门：组件已卸载或请求被取消，整段后续渲染全部跳过 */
     if (!isMounted() || signal.aborted) return
+
+    /**
+     * [AI 错误信号] 服务层命中 401 / 429 / 500 等失败状态码时，已把状态码与
+     * 服务端中文提示投递到只读信箱，这里取走并发布成 UI 错误卡。
+     * 刻意放在下面「本该走真实 AI 却拿到 Mock」的判定之前：精确码不该被通用的 unknown 覆盖。
+     * 本轮回复仍是本地 Mock（服务层已降级），所以练习不会中断，也不会白屏。
+     */
+    const errSignal = takeAiErrorSignal()
+    if (errSignal) reportAiError(codeFromStatus(errSignal.status), errSignal.message, errSignal.status)
 
     /**
      * [对话 UI 状态] 服务层对 /api/chat 的所有失败都会静默回退 Mock，UI 拿不到 reject。

@@ -14,22 +14,45 @@
  *    事件处理器与异步 Promise 里的错误仍需各自 try/catch（React 的固有边界）；
  * 4. 降级 UI 用 fixed inset-0 全屏覆盖，role="alert" + aria-live 播报，
  *    按钮 ≥44px 且 focus-visible 有可见焦点圈；不自动 reload、无定时器。
+ *
+ * ── 双层用法（v2.4）──────────────────────────────────────────────────
+ * · variant="screen"（默认）：整场兜底。任何未捕获异常都不会白屏，
+ *   代价是这一屏的其它功能也一起暂停，直到用户刷新。
+ * · variant="inline"：模块级兜底。罩在「当前页面内容」外面，
+ *   某个模块崩了只让这个模块打嗝，底部导航与其余页面照常可用。
+ *   配合 resetKey（一般传当前视图 id）：切换视图时自动清空错误状态，
+ *   于是「对话崩了 → 点词场」能立刻回到正常，而不是卡死在降级页。
+ *   离线功能（词场 / 复习 / 阅读）因此不会被一次崩溃拖下水。
  */
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, Fragment, type ErrorInfo, type ReactNode } from 'react'
+import { Icon } from './ui'
+
+export type ErrorBoundaryVariant = 'screen' | 'inline'
 
 type ErrorBoundaryProps = {
   children: ReactNode
   /** 可选诊断钩子：仅用于本地日志 / 未来接入监控，组件自身不发起任何网络请求 */
   onError?: (error: Error, info: ErrorInfo) => void
+  /** 变化时清空错误状态：切视图后自动恢复，别的模块不被拖下水 */
+  resetKey?: string | number
+  /** screen = 全屏兜底；inline = 页面内的小卡片 */
+  variant?: ErrorBoundaryVariant
+  /** inline 模式的「离开」动作，例如返回首页 */
+  onExit?: () => void
+  exitLabel?: string
 }
 
-type ErrorBoundaryState = { hasError: boolean }
+type ErrorBoundaryState = {
+  hasError: boolean
+  /** 每次手动重试 +1，用作子树 key，保证重试后组件真正重新挂载 */
+  resetCount: number
+}
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false }
+  state: ErrorBoundaryState = { hasError: false, resetCount: 0 }
 
   /** 渲染期出错 → 立刻切到降级 UI，避免 React 卸载整棵树露出白屏 */
-  static getDerivedStateFromError(): ErrorBoundaryState {
+  static getDerivedStateFromError(): Partial<ErrorBoundaryState> {
     return { hasError: true }
   }
 
@@ -39,14 +62,85 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.props.onError?.(error, info)
   }
 
+  /** resetKey 变了（例如用户切换到别的视图）→ 清空错误状态，恢复正常渲染 */
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  /** 模块级重试：清错误 + 换 key，让子树真正重新挂载 */
+  private handleReset = () => {
+    this.setState((prev) => ({ hasError: false, resetCount: prev.resetCount + 1 }))
+  }
+
   /** 全屏降级页里唯一的用户动作：完整重载，让应用从干净状态重新起步 */
   private handleReload = () => {
     window.location.reload()
   }
 
   render() {
-    if (!this.state.hasError) return this.props.children
+    if (!this.state.hasError) {
+      /* key 变化即重挂载：resetKey 切换视图、resetCount 手动重试都会重新挂载子树 */
+      return (
+        <Fragment key={`${this.props.resetKey ?? 'root'}-${this.state.resetCount}`}>
+          {this.props.children}
+        </Fragment>
+      )
+    }
+    if (this.props.variant === 'inline') return this.renderInline()
+    return this.renderScreen()
+  }
 
+  /** 模块级降级：留在页面里，提示「换个模块继续用」 */
+  private renderInline() {
+    return (
+      <div
+        data-testid="error-boundary-inline"
+        role="alert"
+        aria-live="assertive"
+        className="animate-in flex flex-col items-center gap-3 rounded-3xl border border-coral-400/30 bg-white px-5 py-6 text-center shadow-card"
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-coral-100 text-coral-600"
+        >
+          <Icon name="info" size={19} />
+        </span>
+        <div>
+          <p className="text-[14px] font-bold leading-relaxed text-ink">这个模块开小差了</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">
+            只是这一页暂时打盹，其它功能不受影响——词场、复习、阅读都能继续用。
+          </p>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            data-testid="error-boundary-reset"
+            onClick={this.handleReset}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-2xl bg-brand-500 px-4 text-[12px] font-bold text-white shadow-soft transition hover:bg-brand-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 active:scale-[0.98]"
+          >
+            <Icon name="refresh" size={14} />
+            重试这个模块
+          </button>
+          {this.props.onExit && (
+            <button
+              type="button"
+              data-testid="error-boundary-exit"
+              onClick={this.props.onExit}
+              className="inline-flex min-h-[44px] items-center gap-1 rounded-2xl border border-brand-100 bg-white px-3.5 text-[12px] font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 active:scale-[0.98]"
+            >
+              <Icon name="home" size={14} />
+              {this.props.exitLabel || '返回首页'}
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  /** 全屏降级页：应用整体崩了，只剩这一条明确的退路 */
+  private renderScreen() {
     return (
       <div
         data-testid="error-boundary-fallback"

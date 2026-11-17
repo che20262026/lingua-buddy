@@ -8,6 +8,8 @@ import { applyPronunciationResults } from '../services/pronunciation'
 import { speak } from '../lib/speech'
 import { Card, Chip, EmptyState, Icon, ProgressBar, SectionTitle } from '../components/ui'
 import { HighlightSentence, WordReadAloud, pickReadAloudSentence } from '../components/WordReadAloud'
+import { PronunciationLab } from '../components/PronunciationLab'
+import { challengerFor } from '../data/wordDecks/pronunciationChallengers'
 import type { PronunciationCompletion, StepRecord, WordEntry, WordMedia, WordSessionDraft } from '../wordLabTypes'
 /** [成长系统] 所有新词 / 重拼 / 跟读标记都走统一发放入口 */
 import { XP_RULES } from '../growthTypes'
@@ -69,6 +71,8 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
   const [media, setMedia] = useState<WordMedia | null>(null)
   const [errors, setErrors] = useState<LocalError[]>([])
   const [handwritingMode, setHandwritingMode] = useState<'typing' | 'handwriting'>(data.settings.wordSpellingMode)
+  /** [AI 发音评测] 词卡上的发音练习面板是否展开；它是闭环之外的辅助面板，不参与状态机 */
+  const [pronOpen, setPronOpen] = useState(false)
   /** [S2.5 新增] 整场各词的跟读结果，S4 结算时统一合并进进度与发音 flags */
   const [readAloudResults, setReadAloudResults] = useState<Record<string, PronunciationCompletion>>({})
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -84,6 +88,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
     setSpellInput('')
     setCells(null)
     setHandwritingMode(data.settings.wordSpellingMode)
+    setPronOpen(false)
     if (entry && data.settings.wordAutoSpeak) {
       try { speak(entry.word, data.settings) } catch { /* 浏览器无语音能力时静默 */ }
     }
@@ -429,15 +434,34 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
       ) : (
         <Card>
           <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="en-text font-display text-3xl font-black text-ink">{entry.word}</p>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <p className="en-text font-display text-3xl font-black text-ink">{entry.word}</p>
+                {/* [AI 发音评测] 命中易错词库时优先标记，引导用户去练发音 */}
+                {challengerFor(entry.word) && <Chip tone="coral">易错词</Chip>}
+              </div>
               <p className="mt-1 text-xs text-muted">{entry.phonetic} · {entry.pos} · CEFR {entry.cefr}</p>
             </div>
-            <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
-              aria-label="朗读单词" className="rounded-xl bg-brand-50 p-2 text-brand-600 hover:bg-brand-100">
-              <Icon name="speaker" size={18} />
-            </button>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
+                aria-label="朗读单词" className="rounded-xl bg-brand-50 p-2 text-brand-600 hover:bg-brand-100">
+                <Icon name="speaker" size={18} />
+              </button>
+              {/* [AI 发音评测] 展开发音练习面板：闭环之外的辅助功能，不推进 S1→S5 */}
+              <button type="button" onClick={() => setPronOpen((v) => !v)}
+                aria-expanded={pronOpen}
+                aria-label="发音练习"
+                className={`rounded-xl px-2.5 py-2 text-[11px] font-bold transition ${
+                  pronOpen ? 'bg-brand-500 text-white' : 'bg-brand-50 text-brand-600 hover:bg-brand-100'}`}>
+                <Icon name="mic" size={14} />发音练习
+              </button>
+            </div>
           </div>
+          {pronOpen && (
+            <div className="mt-3 border-t border-brand-50 pt-3">
+              <PronunciationLab entry={entry} defaultAccent={data.settings.accent} />
+            </div>
+          )}
         </Card>
       )}
 

@@ -67,9 +67,16 @@ const PAGES: Record<View, ReactNode> = {
 }
 
 /**
- * [全局错误边界] 最外层只做一件事：把整棵应用树罩进安全气囊。
- * 原有 31 条视图映射、useApp() 与 Layout 结构一字未动，
- * 只是收进 AppContent，成为 ErrorBoundary 的子节点。
+ * [全局错误边界 · 双层] 最外层终结白屏，内层保住离线功能。
+ *
+ * 外层（screen）：任何未捕获异常都不会让应用变成一片空白，
+ *   而是落下那张气鼓鼓的小脸 + 「重新加载」。
+ * 内层（inline）：罩在「当前页面内容」外面，只兜当前模块。
+ *   某个模块崩了，其它模块照常可用——词场 / 复习 / 阅读这些离线功能
+ *   不会被一次崩溃拖下水。配合 resetKey={view}：切换视图时自动清空
+ *   错误状态，于是「对话崩了 → 点词场」能立刻回到正常。
+ *
+ * 原有 25 条视图映射、useApp() 与 Layout 结构一字未动。
  */
 export default function App() {
   return (
@@ -80,6 +87,17 @@ export default function App() {
 }
 
 function AppContent() {
-  const { view } = useApp()
-  return <Layout>{PAGES[view]}</Layout>
+  const { view, navigate } = useApp()
+  return (
+    <Layout>
+      <ErrorBoundary
+        variant="inline"
+        resetKey={view}
+        onExit={() => navigate('home')}
+        exitLabel="返回首页"
+      >
+        {PAGES[view]}
+      </ErrorBoundary>
+    </Layout>
+  )
 }

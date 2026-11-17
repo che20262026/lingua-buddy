@@ -47,6 +47,14 @@ const origError = console.error
 console.error = (...args) => { errors.push(args.map(String).join(' ')); origError(...args) }
 
 const tick = (ms = 120) => new Promise((r) => setTimeout(r, ms))
+/**
+ * 去掉块注释与行注释。
+ * 断言「代码里没有 X」时**必须看代码**：源码注释里常写着
+ * 「我们刻意没用 X」「它不注册进 X」这类说明，原文匹配会把它们误判成违规。
+ */
+const stripComments = (src) => src
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^\s*\/\/.*$/gm, '')
 const bodyText = () => (document.body.textContent || '').replace(/\s+/g, ' ')
 const buttons = () => [...document.querySelectorAll('button')]
 const fire = (el) => el.dispatchEvent(new (globalThis.MouseEvent)('click', { bubbles: true, cancelable: true }))
@@ -3663,16 +3671,17 @@ try {
     && !pwaSw.includes('clientsClaim()'),
   '离线导航回退 index.html，且新 SW 不自动接管客户端')
   assert(pwaVite.includes('skipWaiting: false') && pwaVite.includes('clientsClaim: false')
-    && pwaReg.includes('onNeedRefresh') && !pwaReg.includes('location.reload')
-    && !pwaReg.includes('.skipWaiting') && !pwaVite.includes('runtimeCaching'),
-  '新版本只触发 onNeedRefresh，不 skipWaiting / 不自动刷新 / 不缓存远程接口')
-  assert(pwaPrompt.includes('updateServiceWorker(true)') && pwaPrompt.includes('updateRef.current')
+    && pwaPrompt.includes('useRegisterSW') && !pwaReg.includes('location.reload')
+    && !pwaPrompt.includes('.skipWaiting') && !pwaVite.includes('runtimeCaching'),
+  '新版本只触发 needRefresh，不 skipWaiting / 不自动刷新 / 不缓存远程接口')
+  assert(pwaPrompt.includes('updateServiceWorker(true)')
     && pwaPrompt.includes('发现新版本，点击刷新') && pwaPrompt.includes('稍后再说')
     && pwaPrompt.includes('data-testid="pwa-update-prompt"') && pwaPrompt.includes('bottom-')
     && !pwaPrompt.includes('location.reload'),
   '只有用户点「发现新版本，点击刷新」才调用 updateServiceWorker(true)，提示固定在底部且可「稍后再说」')
-  assert(pwaReg.includes("!('serviceWorker' in navigator)") && pwaReg.includes('NOOP'),
-  '无 Service Worker 环境静默降级，既有功能不受影响')
+  assert(pwaReg.includes('isServiceWorkerSupported')
+    && pwaReg.includes("'serviceWorker' in navigator") && !pwaReg.includes('registerSW('),
+  '无 Service Worker 环境静默降级，既有功能不受影响；注册权已移交 useRegisterSW')
   assert(fs.readFileSync(path.join(root, 'src/vite-env.d.ts'), 'utf8')
     .includes('vite-plugin-pwa/client'),
   'virtual:pwa-register 的类型声明已接入 tsconfig 包含范围')
@@ -3728,15 +3737,15 @@ try {
     && pwaVite.includes('clientsClaim: false') && pwaVite.includes('injectRegister: null')
     && !pwaVite.includes('periodicSyncForUpdates'),
   '更新闭环配置红线：prompt / 不跳过等待 / 不自动接管 / 不重复注入 / 无周期静默检查')
-  assert(pwaReg.includes('UpdateServiceWorker') && pwaReg.includes('immediate: false')
-    && !pwaReg.includes('periodicSyncForUpdates') && !pwaReg.includes('location.reload')
-    && !pwaReg.includes('.skipWaiting'),
-  '注册入口只回调 onNeedRefresh，不做周期性检查、不自动重载、不跳过等待')
-  assert(pwaPrompt.includes('onNeedRefresh') && pwaPrompt.includes('onOfflineReady')
+  assert(pwaReg.includes('UpdateServiceWorker') && pwaPrompt.includes('immediate: false')
+    && !pwaReg.includes('periodicSyncForUpdates') && !pwaPrompt.includes('location.reload')
+    && !pwaPrompt.includes('.skipWaiting'),
+  '注册入口只回调 needRefresh，不做周期性检查、不自动重载、不跳过等待')
+  assert(pwaPrompt.includes('needRefresh') && pwaPrompt.includes('offlineReady')
     && pwaPrompt.includes('data-testid="pwa-offline-ready"')
     && pwaPrompt.includes('data-testid="update-prompt-refresh"')
     && pwaPrompt.includes('bottom-['),
-  'onNeedRefresh 驱动更新提示，离线就绪为轻提示，刷新按钮可定位且提示在底部')
+  'needRefresh 驱动更新提示，离线就绪为轻提示，刷新按钮可定位且提示在底部')
   assert(!pwaPrompt.includes('location.reload') && !pwaPrompt.includes('autoUpdate')
     && !pwaPrompt.includes('setInterval'),
   '组件不含任何自动刷新 / 定时检查逻辑，学习过程不被打断')
@@ -3828,12 +3837,113 @@ try {
   'json_data 为 jsonb 且允许对象/数组，data_type 用宽松格式便于扩展')
   assert(cloudSql.includes('alter table public.user_data enable row level security')
     && cloudSql.includes('revoke all on public.user_data from anon')
-    && cloudSql.includes('grant select, insert, update, delete on public.user_data to authenticated'),
-  '开启 RLS、收回 anon 权限、仅授予 authenticated 增删改查')
-  assert(['select', 'insert', 'update', 'delete'].every((op) => cloudSql.includes(`"user_data_${op}_own"`))
-    && (cloudSql.match(/auth\.uid\(\) = user_id/g) || []).length >= 5
-    && (cloudSql.match(/to authenticated/g) || []).length >= 4,
-  '读 / 写 / 改 / 删四条 own 策略全部以 auth.uid() = user_id 限定角色')
+    && cloudSql.includes('revoke all on public.user_data from public')
+    && /grant select, insert, update on (table )?public\.user_data to authenticated/.test(cloudSql)
+    && !cloudSql.includes('grant select, insert, update, delete'),
+  '开启 RLS、收回 anon 与 PUBLIC 权限、仅授予 authenticated 读写改（无 delete）')
+  assert(['select', 'insert', 'update'].every((op) => cloudSql.includes(`"user_data_${op}_own"`))
+    && !/create policy "user_data_delete_own"/.test(cloudSql)
+    && (cloudSql.match(/auth\.uid\(\) = user_id/g) || []).length >= 4
+    && (cloudSql.match(/to authenticated/g) || []).length >= 3
+    && cloudSql.includes('revoke all on public.user_data from public')
+    && cloudSql.includes('revoke all on public.user_data from anon')
+    && cloudSql.includes('grant select, insert, update on public.user_data to authenticated')
+    && !cloudSql.includes('grant select, insert, update, delete'),
+  '读 / 写 / 改三条 own 策略全部以 auth.uid() = user_id 限定 authenticated；delete 已移除，PUBLIC 伪角色已收回')
+
+  /* RLS 复查版脚本：只动策略与授权，可直接粘到 Supabase SQL Editor */
+  const rlsSqlPath = path.join(root, 'supabase/rls_user_data.sql')
+  const rlsSql = fs.readFileSync(rlsSqlPath, 'utf8')
+
+  /**
+   * [SQL 结构自检] 本地没有 Postgres，无法真正执行 DDL，
+   * 因此至少把「括号 / 引号 / $$ 块是否配对」这类手误在粘贴前拦下来。
+   * 扫描器会跳过 -- 行注释、'...' 字符串（含 '' 转义）与 $tag$ 美元引号块，
+   * 并额外输出去注释后的代码：否定断言（如「不得存在 delete 策略」）必须看**代码**，
+   * 否则脚本里注释掉的恢复示例会被误判成真实语句。
+   */
+  const scanSql = (sql) => {
+    let i = 0
+    let paren = 0
+    let inSingle = false
+    let dollar = null
+    const n = sql.length
+    let code = ''
+    while (i < n) {
+      const c = sql[i]
+      if (dollar) {
+        if (sql.startsWith(dollar, i)) { i += dollar.length; dollar = null; code += ' '; continue }
+        code += c; i++; continue
+      }
+      if (inSingle) {
+        if (c === "'") {
+          if (sql[i + 1] === "'") { code += "''"; i += 2; continue }
+          inSingle = false
+        }
+        code += c; i++; continue
+      }
+      if (c === '-' && sql[i + 1] === '-') {
+        while (i < n && sql[i] !== '\n') i++
+        continue
+      }
+      if (c === "'") { inSingle = true; code += c; i++; continue }
+      if (c === '$') {
+        const tag = /^\$[A-Za-z_]*\$/.exec(sql.slice(i))
+        if (tag) { dollar = tag[0]; i += tag[0].length; code += ' '; continue }
+      }
+      if (c === '(') paren++
+      else if (c === ')') paren--
+      if (paren < 0) return { ok: false, reason: '右括号多于左括号', code }
+      code += c; i++
+    }
+    if (paren !== 0) return { ok: false, reason: `括号未闭合，差 ${paren}`, code }
+    if (inSingle) return { ok: false, reason: '单引号未闭合', code }
+    if (dollar) return { ok: false, reason: `美元引号块未闭合：${dollar}`, code }
+    return { ok: true, reason: '', code }
+  }
+  const cloudScan = scanSql(cloudSql)
+  const rlsScan = scanSql(rlsSql)
+  assert(cloudScan.ok && rlsScan.ok,
+  `迁移脚本与 RLS 复查脚本括号 / 引号 / $$ 块全部配对，可安全粘贴到 SQL Editor${
+    cloudScan.ok && rlsScan.ok ? '' : `（${cloudScan.reason || rlsScan.reason}）`}`)
+  /* 去注释后的代码：用于「不得包含某语句」的否定断言 */
+  const cloudCode = cloudScan.code
+  const rlsCode = rlsScan.code
+
+  /* RLS 复查版脚本：只动策略与授权，可直接粘到 Supabase SQL Editor */
+  assert(fs.existsSync(rlsSqlPath),
+  'RLS 复查脚本已落盘，可直接粘贴到 Supabase SQL Editor 执行')
+  assert(rlsSql.includes('alter table public.user_data enable row level security')
+    && rlsSql.includes('revoke all on table public.user_data from public')
+    && rlsSql.includes('revoke all on table public.user_data from anon')
+    && /grant select, insert, update on (table )?public\.user_data to authenticated/.test(rlsSql)
+    && !rlsCode.includes('grant select, insert, update, delete'),
+  'RLS 复查脚本：开启 RLS + 收回 PUBLIC/anon 权限 + 只授予 select/insert/update')
+  assert(['select', 'insert', 'update'].every((op) => rlsCode.includes(`create policy "user_data_${op}_own"`))
+    && !rlsCode.includes('create policy "user_data_delete_own"')
+    && rlsCode.includes('using (auth.uid() = user_id)')
+    && rlsCode.includes('with check (auth.uid() = user_id)')
+    && (rlsCode.match(/to authenticated/g) || []).length >= 3,
+  'RLS 复查脚本：三条策略齐备且全部以 auth.uid() = user_id 限定，无 delete 策略')
+  assert(rlsSql.includes('from pg_policies')
+    && rlsSql.includes('information_schema.role_table_grants')
+    && rlsSql.includes('set local role authenticated')
+    && rlsSql.includes('drop policy if exists'),
+  'RLS 复查脚本自带只读验证查询、越权模拟测试，且全部语句幂等可重复执行')
+  assert(['select', 'insert', 'update'].every((op) =>
+    cloudCode.includes(`create policy "user_data_${op}_own"`) && rlsCode.includes(`create policy "user_data_${op}_own"`))
+    && cloudCode.includes('revoke all on public.user_data from public')
+    && rlsCode.includes('revoke all on table public.user_data from public'),
+  '迁移脚本与 RLS 复查脚本策略集一致：新装环境与线上库语义相同，不会各说各话')
+  const cloudSchema = fs.readFileSync(path.join(root, 'supabase/SCHEMA.md'), 'utf8')
+  assert(cloudSchema.includes('| `user_data_select_own` |')
+    && cloudSchema.includes('| `user_data_update_own` |')
+    && !cloudSchema.includes('| `user_data_delete_own` |')
+    && cloudSchema.includes('三条全部带 `to authenticated`'),
+  'Schema 文档的策略表同步为三条（恢复示例在正文里，不在策略表内）')
+  assert(cloudSql.includes('create policy') && cloudSql.includes('drop policy if exists')
+    && rlsSql.includes('create policy') && rlsSql.includes('drop policy if exists'),
+  '两份 SQL 的策略语句一律「先 drop 再 create」，重复执行不产生重复策略')
   assert(cloudSql.includes('create or replace function public.upsert_user_data')
     && cloudSql.includes('v_uid uuid := auth.uid()') && !/p_user_id/.test(cloudSql),
   'upsert RPC 只从 auth.uid() 取归属，不接受客户端伪造 user_id')
@@ -4188,21 +4298,27 @@ try {
      v2.0 Netlify 迁移：用户明确要求改前端请求路径与本地代理，故 aiStatus.ts
      （AI_ENDPOINT）与 vite.config.ts（双代理）更新为 v2.0 受控基线；
      dialogueDirector.ts / llmStream.ts 靠 import AI_ENDPOINT 自动跟随，
-     连同 api/chat.ts / vercel.json / .env.example 共 5 个文件继续逐字节冻结。 */
+     连同 api/chat.ts / vercel.json / .env.example 共 5 个文件继续逐字节冻结。
+     v2.2 防刷限流：用户明确要求前端 fetch 捕获 429，故 dialogueDirector.ts
+     （429 识别与提示投递）与 .env.example（限流变量说明）更新为 v2.2 受控基线；
+     api/chat.ts / llmStream.ts / vercel.json / aiStatus.ts / vite.config.ts 继续冻结。
+     v2.4 异常处理完善：用户明确要求 500/401 在对话气泡里显示系统提示，故
+     dialogueDirector.ts（失败状态码识别）再次更新为 v2.4 受控基线；
+     后端 api/chat.ts、部署 vercel.json、vite.config.ts、.env.example 继续冻结。 */
   const { createHash } = await import('node:crypto')
   const frozenHash = (rel) => createHash('sha256')
     .update(fs.readFileSync(path.join(root, rel))).digest('hex')
   const FROZEN = {
     'api/chat.ts': '1f2e56a34fd41132088fa3152fc890480282b8f5686c16f43cde9d17ed553778',
-    'src/services/dialogueDirector.ts': 'd4d72374922965973ba3d35c0efa92f380a682579c223f90c70e0c245df57f83',
+    'src/services/dialogueDirector.ts': 'c855c646f0efc70cee1b61d8b2278f7f4fe973d6017fb5be291fa6c5adb624d4',
     'src/services/aiStatus.ts': 'a8e0bc212a6c15d44f83ec2d360ad66b853fdbed885e602466bb274a7b36687f',
     'src/services/llmStream.ts': '4ee596d5f154d7c94d20753bc6b95902a3efe9220e0ea004bcc290b015d00006',
     'vercel.json': '1dd30aa45b1253f3d3947f4ff094a3b32f35dd5947a442f6ca10fc75a8be21a9',
     'vite.config.ts': '42d24292ea41674342e073a165e092e60599225a57c450b8a2e0a846986cb25b',
-    '.env.example': '2ccbea1075b3e8619884c66fc076264a969ce3016097de89d65cd257d4fb48ad',
+    '.env.example': '28555214ec309c80888800b44c6a32df8f78bb01d6fb468d3d3bc85cd417cc73',
   }
   assert(Object.entries(FROZEN).every(([rel, hash]) => frozenHash(rel) === hash),
-  '5 个网络层/后端/部署文件逐字节冻结；aiStatus.ts 与 vite.config.ts 为 v2.0 受控基线')
+  '5 个网络层/后端/部署文件逐字节冻结；aiStatus.ts 与 vite.config.ts 为 v2.0 基线，dialogueDirector.ts 为 v2.4 基线，.env.example 为 v2.6 基线（补写 evaluate 端点与限流分桶说明）')
 
   assert(uiSkeleton.includes('role="status"') && uiSkeleton.includes('aria-busy="true"')
     && uiSkeleton.includes('aria-live="polite"') && uiSkeleton.includes('skeleton-dot')
@@ -4248,15 +4364,21 @@ try {
     && CH.codeFromStatus(418) === 'unknown' && CH.codeFromStatus(599) === 500,
   '运行时：401/429/500/503 精确映射，未知 4xx 归 unknown、未知 5xx 归 500')
   assert(CH.describeAiError(402).title.includes('余额不足')
-    && CH.describeAiError(401).title.includes('AI 正在开小差')
+    && CH.describeAiError(401).title.includes('AI 老师暂时联系不上')
+    && CH.describeAiError(500).title.includes('AI 老师正在休息')
     && CH.describeAiError(429).title.includes('AI 有点忙')
     && CH.describeAiError('unknown').title.includes('请稍后再试'),
-  '运行时：余额不足 / 密钥错误 / 限流 / 通用失败都有各自的友好文案')
+  '运行时：余额不足 / 密钥错误 / 服务端故障 / 限流 / 通用失败都有各自的友好文案')
   const uiAllCodes = [400, 401, 402, 403, 404, 408, 429, 500, 502, 503, 504, 'network', 'unknown']
   assert(uiAllCodes.every((c) => {
     const d = CH.describeAiError(c)
     return d.label && d.title && d.hint && d.action
   }), '运行时：13 种错误码的标签 / 标题 / 建议 / 按钮文案全部齐备，无空洞状态')
+  assert(uiAllCodes.every((c) => ['warm', 'danger'].includes(CH.describeAiError(c).severity))
+    && CH.describeAiError(401).severity === 'danger'
+    && CH.describeAiError(500).severity === 'danger'
+    && CH.describeAiError(429).severity === 'warm',
+  '运行时：每个错误码都有语气分级，服务端故障走 danger（红）、限流走 warm（暖）')
   const uiSeen = []
   const uiOff = CH.subscribeAiError((s) => uiSeen.push(s))
   CH.reportAiError(429, 'HTTP 429', 429)
@@ -4407,7 +4529,8 @@ window.__mountSkeleton = (el) => {
     && localScripts.build === 'tsc --noEmit && vite build',
   'dev:server / dev:server:mock / dev:full / dev:mock 就位，原 dev 与 build 命令不变')
   assert(localServerSrc.includes("await import('./netlify/functions/chat.ts')")
-    && localServerSrc.includes('invokeChat({ method: req.method')
+    && localServerSrc.includes('invokeChat({')
+    && localServerSrc.includes('method: req.method')
     && !localServerSrc.includes('completionUrl(')
     && !localServerSrc.includes('Authorization: `Bearer'),
   'server.ts 复用 Netlify 函数的 invokeChat，不复制 LLM 请求逻辑，本地与线上同源')
@@ -4490,7 +4613,8 @@ window.__mountSkeleton = (el) => {
   assert(ebApp.includes("import { ErrorBoundary } from './components/ErrorBoundary'")
     && /export default function App\(\) \{\s*return \(\s*<ErrorBoundary>/.test(ebApp)
     && ebApp.includes('<AppContent />')
-    && ebApp.includes('return <Layout>{PAGES[view]}</Layout>')
+    && ebApp.includes('<Layout>')
+    && ebApp.includes('{PAGES[view]}')
     && ebMapKeys.length >= 25
     && ['home', 'dialogue', 'reader', 'watch', 'wordSession', 'growth', 'chinaUnit']
       .every((k) => ebMapKeys.includes(k)),
@@ -4636,7 +4760,8 @@ window.__mountEB = (el, boom, onError) => {
   '徽章 / 设置页 / 探测文案不再出现旧 Vercel 路径')
   assert(nfServer.includes("await import('./netlify/functions/chat.ts')")
     && nfServer.includes("app.all(['/.netlify/functions/chat', '/api/chat']")
-    && nfServer.includes('invokeChat({ method: req.method')
+    && nfServer.includes('invokeChat({')
+    && nfServer.includes('method: req.method')
     && nfVite.includes("'/.netlify/functions'") && nfVite.includes("'/api'")
     && !nfVite.includes('rewrite:'),
   '本地 Express 双路径 + Vite 双代理，主线跑生产同款 invokeChat')
@@ -4650,6 +4775,9 @@ window.__mountEB = (el, boom, onError) => {
   assert(typeof NF.handler === 'function' && typeof NF.invokeChat === 'function',
   '运行时：handler 与 invokeChat 均为可调用导出')
   const nfParse = (r) => JSON.parse(r.body)
+  /* [防刷限流] 限流按 IP 分桶：每个测试场景代表一个不同的客户端 IP，
+     否则连续 6 次 POST 会触发限流，既有断言自己把自己锁在门外 */
+  const nfIp = (n) => ({ 'x-nf-client-connection-ip': `198.51.100.${n}` })
   const nfRealFetch = globalThis.fetch
   const nfSavedEnv = {
     key: process.env.LLM_API_KEY, base: process.env.LLM_API_BASE, model: process.env.LLM_MODEL,
@@ -4661,7 +4789,7 @@ window.__mountEB = (el, boom, onError) => {
       && nfParse(g0).configured === false && g0.headers['Cache-Control'] === 'no-store'
       && typeof g0.body === 'string',
     '运行时：GET 无 Key → 200 mode:mock，且返回 Netlify 形状 {statusCode,headers,body}')
-    const p0 = await NF.invokeChat({ method: 'POST', body: { messages: [{ role: 'user', content: 'hi' }] } })
+    const p0 = await NF.invokeChat({ method: 'POST', body: { messages: [{ role: 'user', content: 'hi' }] }, headers: nfIp(1) })
     assert(p0.statusCode === 503 && nfParse(p0).fallback === true,
     '运行时：POST 无 Key → 503 + fallback:true，前端可立即回退 Mock')
 
@@ -4677,14 +4805,14 @@ window.__mountEB = (el, boom, onError) => {
     const put = await NF.invokeChat({ method: 'PUT' })
     assert(put.statusCode === 405 && nfParse(put).fallback === true,
     '运行时：非 GET/POST → 405 且带 fallback:true 暗号')
-    const bad = await NF.invokeChat({ method: 'POST', body: '{oops' })
+    const bad = await NF.invokeChat({ method: 'POST', body: '{oops', headers: nfIp(2) })
     assert(bad.statusCode === 503 && nfParse(bad).fallback === true,
     '运行时：非法 JSON 请求体 → 503 可降级，不冒泡成函数崩溃')
 
     globalThis.fetch = async () => new Response(JSON.stringify({
       choices: [{ message: { content: '{"reply":"Hi there"}' } }],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    const ok = await NF.invokeChat({ method: 'POST', body: { messages: [{ role: 'user', content: 'hi' }], level: 'B1' } })
+    const ok = await NF.invokeChat({ method: 'POST', body: { messages: [{ role: 'user', content: 'hi' }], level: 'B1' }, headers: nfIp(3) })
     assert(ok.statusCode === 200 && nfParse(ok).ok === true
       && nfParse(ok).content.includes('Hi there') && nfParse(ok).mode === 'live',
     '运行时：伪造上游成功 → 200 标准 JSON，content 原样透传')
@@ -4692,13 +4820,13 @@ window.__mountEB = (el, boom, onError) => {
     globalThis.fetch = async () => new Response(
       'data: {"choices":[{"delta":{"content":"hello"}}]}\n\ndata: [DONE]\n\n',
       { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
-    const sse = await NF.invokeChat({ method: 'POST', body: { messages: [{ role: 'user', content: 'hi' }], stream: true } })
+    const sse = await NF.invokeChat({ method: 'POST', body: { messages: [{ role: 'user', content: 'hi' }], stream: true }, headers: nfIp(4) })
     assert(sse.statusCode === 200 && sse.headers['Content-Type'].includes('text/event-stream')
       && sse.body.includes('data: ') && sse.body.includes('[DONE]'),
     '运行时：SSE 缓冲式适配 → 完整帧一次性返回，前端拼帧器仍可解析')
 
     globalThis.fetch = async () => new Response('upstream says sk-leaked-abcdef', { status: 401 })
-    const up = await NF.invokeChat({ method: 'POST', body: { messages: [{ role: 'user', content: 'hi' }] } })
+    const up = await NF.invokeChat({ method: 'POST', body: { messages: [{ role: 'user', content: 'hi' }] }, headers: nfIp(5) })
     assert(up.statusCode === 502 && nfParse(up).fallback === true
       && up.body.includes('sk-***') && !up.body.includes('sk-leaked'),
     '运行时：上游 401 → 502 可降级，错误信息里的密钥被脱敏')
@@ -4710,6 +4838,7 @@ window.__mountEB = (el, boom, onError) => {
       httpMethod: 'POST',
       body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
       queryStringParameters: {}, isBase64Encoded: false,
+      headers: nfIp(6),
     })
     assert(ev && ev.statusCode === 200 && typeof ev.body === 'string'
       && ev.headers['Content-Type'].includes('application/json')
@@ -4766,11 +4895,915 @@ window.__mountEB = (el, boom, onError) => {
   assert(fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('三十五、'),
   'README 记录徽章真相与后台开关 / CSP 两种根治手段')
   assert(Object.entries(FROZEN).every(([rel, hash]) => frozenHash(rel) === hash),
-  '本轮只动全局样式与验证脚本，7 个网络层 / 后端 / 部署基线文件全部逐字节未变')
+  '徽章章节只动全局样式与验证脚本，7 个网络层 / 后端 / 部署基线文件全部逐字节未变')
+
+  /* ============================================================
+   * 三十六、防刷限流（纯内存 IP 限流 · 429 契约 · 前端优雅提示）
+   * ============================================================ */
+  const rlSrc = fs.readFileSync(path.join(root, 'netlify/lib/rateLimit.ts'), 'utf8')
+  assert(fs.existsSync(path.join(root, 'netlify/lib/rateLimit.ts'))
+    && rlSrc.includes('new Map<string, Bucket>()')
+    && rlSrc.includes('DEFAULT_PER_MINUTE = 5')
+    && rlSrc.includes('DEFAULT_PER_DAY = 50')
+    && rlSrc.includes('x-nf-client-connection-ip')
+    && rlSrc.includes('x-forwarded-for'),
+  '新增 netlify/lib/rateLimit.ts：纯内存 Map 分桶，默认每分钟 5 次 / 每天 50 次，IP 优先取平台头')
+  assert(rlSrc.includes('MAX_BUCKETS = 5000') && rlSrc.includes('resetRateLimiter')
+    && rlSrc.includes('export function checkRateLimit')
+    && rlSrc.includes('export function rateLimitHeaders'),
+  '限流模块内存有界（桶表上限 + 死桶清理），并提供重置与响应头导出')
+  assert(nfSrc.includes("from '../lib/rateLimit'")
+    && nfSrc.includes('checkRateLimit(clientIp(req.headers)')
+    && nfSrc.includes('if (!decision.allowed) return rateLimitedResult(decision)')
+    && nfSrc.includes("'请求太频繁，请稍后再试'")
+    && nfSrc.includes("'今日额度已用完'")
+    && nfSrc.includes('Retry-After'),
+  'chat.ts 接入限流：429 + 中文提示（请求太频繁 / 今日额度已用完）+ Retry-After 头')
+  assert(nfSrc.includes('rateLimited: true') && nfSrc.includes('fallback: true')
+    && nfSrc.includes('headers: event.headers'),
+  '429 响应仍带 fallback:true（前端照旧回退 Mock），并把平台请求头透传进限流判定')
+  assert(nfServer.includes('function toClientHeaders(req: express.Request)')
+    && nfServer.includes('headers[name] = Array.isArray(value) ? value[0] : value')
+    && nfServer.includes('headers: toClientHeaders(req)')
+    && (nfServer.match(/headers: toClientHeaders\(req\)/g) || []).length === 2,
+  '本地 Express 把请求头归一化后透传给 invokeChat 与 invokeEvaluate，本地限流与线上同一套判定')
+  const rlDirector = fs.readFileSync(path.join(root, 'src/services/dialogueDirector.ts'), 'utf8')
+  const rlDialogue = fs.readFileSync(path.join(root, 'src/pages/Dialogue.tsx'), 'utf8')
+  const rlChannel = fs.readFileSync(path.join(root, 'src/components/aiErrorChannel.ts'), 'utf8')
+  assert(rlDirector.includes('if (!res.ok) recordAiErrorStatus(res.status, parseServerErrorMessage(raw))')
+    && rlDirector.includes('return mockGenerateDialogue(input)'),
+  '前端 fetch 层捕获任何失败状态码并投递状态码与中文提示；服务层仍回退 Mock，练习不中断、不会白屏')
+  assert(rlDialogue.includes('takeAiErrorSignal()')
+    && rlDialogue.includes('reportAiError(codeFromStatus(errSignal.status)')
+    && rlChannel.includes("label: '请求太频繁'"),
+  '对话界面把限流提示发布成友好卡片，而不是通用失败或崩溃')
+  assert(rlChannel.includes("if (current?.code === code && !/^HTTP \\d+$/.test(current.detail || '')")
+    && fs.readFileSync(path.join(root, 'src/services/aiErrorSignal.ts'), 'utf8').includes('RATE_LIMITED_STATUS = 429'),
+  '只读观察器不覆盖已抓到中文提示的同码错误，精确诊断优先于通用 HTTP 码')
+
+  /* 运行时：把限流真跑起来 —— 连打 6 次 POST，看第 6 次是否真的举起 429 牌子 */
+  const NF2 = await loadModule('netlify/functions/chat.ts', 'netlify-chat-ratelimit')
+  const rlRealFetch = globalThis.fetch
+  const rlSavedEnv = {
+    LLM_API_KEY: process.env.LLM_API_KEY,
+    LLM_API_BASE: process.env.LLM_API_BASE,
+    RATE_LIMIT_PER_MINUTE: process.env.RATE_LIMIT_PER_MINUTE,
+    RATE_LIMIT_PER_DAY: process.env.RATE_LIMIT_PER_DAY,
+  }
+  try {
+    process.env.LLM_API_KEY = 'sk-ratelimit-secret-123456'
+    process.env.LLM_API_BASE = 'https://ratelimit.example/v1'
+    delete process.env.RATE_LIMIT_PER_MINUTE
+    delete process.env.RATE_LIMIT_PER_DAY
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      choices: [{ message: { content: '{"reply":"ok"}' } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+    const rlIp = (n) => ({ 'x-nf-client-connection-ip': `203.0.113.${n}` })
+    const rlPost = (headers) => NF2.invokeChat({
+      method: 'POST',
+      body: { messages: [{ role: 'user', content: 'hi' }] },
+      headers,
+    })
+
+    const rlAllowed = []
+    for (let i = 0; i < 5; i++) rlAllowed.push(await rlPost(rlIp(1)))
+    assert(rlAllowed.every((r) => r.statusCode === 200),
+    '运行时：同一 IP 前 5 次 POST 全部放行（默认每分钟 5 次）')
+
+    const rlSixth = await rlPost(rlIp(1))
+    const rlSixthBody = JSON.parse(rlSixth.body)
+    assert(rlSixth.statusCode === 429 && rlSixthBody.rateLimited === true
+      && rlSixthBody.error === '请求太频繁，请稍后再试'
+      && rlSixthBody.fallback === true
+      && !!rlSixth.headers['Retry-After'],
+    '运行时：第 6 次触发分钟窗限流 → 429 + 中文提示 + Retry-After，且仍带 fallback:true')
+
+    const rlOther = await rlPost(rlIp(2))
+    assert(rlOther.statusCode === 200,
+    '运行时：不同 IP 各自独立分桶，互不牵连')
+
+    const rlProbe = await NF2.invokeChat({ method: 'GET', headers: rlIp(1) })
+    assert(rlProbe.statusCode === 200,
+    '运行时：GET 能力探测不消耗配额，被限流的 IP 依然可以探测')
+
+    /* 日窗口：把日配额调到 2，第 3 次应报「今日额度已用完」 */
+    process.env.RATE_LIMIT_PER_DAY = '2'
+    const rlDayAllowed = []
+    for (let i = 0; i < 2; i++) rlDayAllowed.push(await rlPost(rlIp(3)))
+    const rlDayThird = await rlPost(rlIp(3))
+    const rlDayBody = JSON.parse(rlDayThird.body)
+    assert(rlDayAllowed.every((r) => r.statusCode === 200)
+      && rlDayThird.statusCode === 429
+      && rlDayBody.error === '今日额度已用完'
+      && rlDayBody.scope === 'day'
+      && rlDayThird.headers['X-RateLimit-Scope'] === 'day',
+    '运行时：日窗口用尽 → 429 + 「今日额度已用完」+ X-RateLimit-Scope:day')
+  } finally {
+    globalThis.fetch = rlRealFetch
+    for (const [name, value] of Object.entries(rlSavedEnv)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+
+  /* 运行时：前端限流信箱 —— 取提示、一次性消费、非法 JSON 兜底 */
+  const RL = await loadModule('src/services/aiErrorSignal.ts', 'ai-error-signal')
+  assert(RL.RATE_LIMITED_STATUS === 429
+    && RL.parseServerErrorMessage('{"error":"请求太频繁，请稍后再试"}') === '请求太频繁，请稍后再试'
+    && RL.parseServerErrorMessage('{"error":"今日额度已用完"}') === '今日额度已用完'
+    && RL.parseServerErrorMessage('<html>502 Bad Gateway</html>') === ''
+    && RL.defaultMessageForStatus(429) === '请求太频繁，请稍后再试'
+    && RL.defaultMessageForStatus(500) === 'AI 服务暂时不可用，请稍后再试',
+  '运行时：前端能从错误响应体取出服务端中文提示，非 JSON 时按状态码兜底')
+  RL.recordAiErrorStatus(500, '大模型服务内部出错了')
+  const rlNotice = RL.takeAiErrorSignal()
+  assert(rlNotice && rlNotice.status === 500 && rlNotice.message === '大模型服务内部出错了'
+    && RL.takeAiErrorSignal() === null,
+  '运行时：错误信号一次性消费，读完即清，不污染下一轮对话')
+  assert(fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('三十六、'),
+  'README 沉淀防刷限流的手册与调参说明')
+
+  /* ============================================================
+   * 三十八、前端异常处理完善（双层错误边界 · 500/401 红色系统提示 · 离线功能隔离）
+   * ============================================================ */
+  const eb2Src = fs.readFileSync(path.join(root, 'src/components/ErrorBoundary.tsx'), 'utf8')
+  const cardSrc = fs.readFileSync(path.join(root, 'src/components/AiErrorCard.tsx'), 'utf8')
+  const channelSrc = fs.readFileSync(path.join(root, 'src/components/aiErrorChannel.ts'), 'utf8')
+  const signalSrc = fs.readFileSync(path.join(root, 'src/services/aiErrorSignal.ts'), 'utf8')
+  const tailwindSrc = fs.readFileSync(path.join(root, 'tailwind.config.js'), 'utf8')
+
+  assert(eb2Src.includes('variant?: ErrorBoundaryVariant')
+    && eb2Src.includes("variant === 'inline'")
+    && eb2Src.includes('data-testid="error-boundary-inline"')
+    && eb2Src.includes('data-testid="error-boundary-reset"')
+    && eb2Src.includes('data-testid="error-boundary-exit"'),
+  '错误边界支持 inline 变体：页面内小卡片 + 重试 + 离开两个出口')
+  assert(eb2Src.includes('resetKey?: string | number')
+    && eb2Src.includes('componentDidUpdate(prevProps: ErrorBoundaryProps)')
+    && eb2Src.includes('prevProps.resetKey !== this.props.resetKey')
+    && eb2Src.includes('resetCount'),
+  '错误边界支持 resetKey：切换视图自动清空错误状态，手动重试换 key 重挂载子树')
+  assert(ebApp.includes('<ErrorBoundary>')
+    && ebApp.includes('variant="inline"')
+    && ebApp.includes('resetKey={view}')
+    && ebApp.includes("navigate('home')"),
+  'App.tsx 双层边界：外层终结白屏，内层只兜当前模块并可一键返回首页')
+  assert(ebApp.includes('{PAGES[view]}')
+    && ebMapKeys.length >= 25
+    && ['wordLab', 'wordSession', 'errorBook', 'review', 'library', 'reader']
+      .every((k) => ebMapKeys.includes(k)),
+  '25 条视图映射一条未少：词场 / 复习 / 阅读等离线功能依旧可达')
+  assert(channelSrc.includes("severity: 'danger'")
+    && channelSrc.includes("label: '服务端异常', title: 'AI 老师正在休息，请稍后再试'")
+    && channelSrc.includes("label: '密钥校验未通过', title: 'AI 老师暂时联系不上，请稍后再试'")
+    && channelSrc.includes("severity: 'warm'"),
+  '错误文案分语气：401 / 5xx 用 danger（红），限流与网络用 warm（暖珊瑚）')
+  assert(cardSrc.includes('data-severity={copy.severity}')
+    && cardSrc.includes('danger: {')
+    && cardSrc.includes('bg-danger-100 text-danger-600')
+    && cardSrc.includes('data-testid="ai-error-retry"')
+    && cardSrc.includes('data-testid="ai-error-detail"'),
+  '错误卡片按语气取色：danger 走红色令牌，重试按钮与诊断行齐备')
+  assert(tailwindSrc.includes('danger:')
+    && tailwindSrc.includes("500: '#e13b42'"),
+  '色板新增 danger 红色令牌（与暖珊瑚区分严重程度）')
+  assert(signalSrc.includes('recordAiErrorStatus')
+    && signalSrc.includes('takeAiErrorSignal')
+    && signalSrc.includes('defaultMessageForStatus')
+    && !fs.existsSync(path.join(root, 'src/services/aiRateLimit.ts')),
+  'AI 错误信号通道统一承接 4xx/5xx；旧的限流专用信箱已并入并移除')
+  assert(rlDialogue.includes('takeAiErrorSignal()')
+    && rlDialogue.includes('codeFromStatus(errSignal.status)')
+    && rlDirector.includes('if (!res.ok) recordAiErrorStatus(res.status'),
+  '对话页把失败状态码翻译成系统提示卡，不依赖浏览器特性')
+
+  /* 运行时：模块级边界真崩一次 —— 只打嗝当前模块，切视图即恢复 */
+  const EB2_ENTRY = `
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { ErrorBoundary } from './src/components/ErrorBoundary.tsx'
+let boom = true
+function Boom() {
+  if (boom) throw new Error('模拟模块崩溃')
+  return React.createElement('p', { 'data-testid': 'eb-ok' }, '模块正常')
+}
+window.__inline = {
+  setBoom: (v) => { boom = v },
+  mount: (el) => {
+    const r = createRoot(el)
+    const api = {
+      draw: (resetKey) => r.render(React.createElement(
+        ErrorBoundary, { variant: 'inline', resetKey }, React.createElement(Boom))),
+      unmount: () => r.unmount(),
+    }
+    api.draw('view-a')
+    return api
+  },
+}
+`
+  const eb2Out = await build({
+    stdin: { contents: EB2_ENTRY, resolveDir: root, loader: 'tsx' },
+    bundle: true, format: 'iife', platform: 'browser', jsx: 'automatic', write: false,
+    define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
+  })
+  const eb2Vc = new VirtualConsole()
+  eb2Vc.on('jsdomError', () => {})
+  eb2Vc.on('error', () => {})
+  const eb2Dom = new JSDOM('<!doctype html><html><body><div id="m"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: eb2Vc })
+  const ew2 = eb2Dom.window
+  ew2.eval(eb2Out.outputFiles[0].text)
+  const eb2El = ew2.document.getElementById('m')
+  const eb2Api = ew2.__inline
+  eb2Api.setBoom(true)
+  const eb2Inst = eb2Api.mount(eb2El)
+  await tick(60)
+  const eb2Inline = eb2El.querySelector('[data-testid="error-boundary-inline"]')
+  assert(!!eb2Inline && eb2Inline.getAttribute('role') === 'alert'
+    && eb2Inline.textContent.includes('这个模块开小差')
+    && eb2Inline.textContent.includes('词场')
+    && !!eb2Inline.querySelector('[data-testid="error-boundary-reset"]')
+    && !eb2El.querySelector('[data-testid="error-boundary-fallback"]'),
+  '运行时：模块崩溃 → 页面内红色降级卡片（不是全屏白屏），并说明离线功能不受影响')
+
+  /* 手动重试：修好之后点「重试这个模块」应当立刻恢复 */
+  eb2Api.setBoom(false)
+  eb2Inline.querySelector('[data-testid="error-boundary-reset"]').click()
+  await tick(60)
+  assert(!!eb2El.querySelector('[data-testid="eb-ok"]')
+    && !eb2El.querySelector('[data-testid="error-boundary-inline"]'),
+  '运行时：点击「重试这个模块」→ 子树重新挂载，模块恢复正常')
+
+  /* 切换视图（resetKey 变化）→ 自动清空错误状态 */
+  eb2Api.setBoom(true)
+  eb2Inst.draw('view-a')
+  await tick(60)
+  assert(!!eb2El.querySelector('[data-testid="error-boundary-inline"]'),
+  '运行时：再次崩溃后模块级降级卡片重新出现')
+  eb2Api.setBoom(false)
+  eb2Inst.draw('view-b')
+  await tick(80)
+  assert(!!eb2El.querySelector('[data-testid="eb-ok"]'),
+  '运行时：切换视图（resetKey 变化）→ 自动恢复，不需要刷新页面')
+  eb2Inst.unmount()
+
+  /* 运行时：500 / 401 的系统提示卡确实走红色，且带重试按钮 */
+  const CARD_ENTRY = `
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { AiErrorCard } from './src/components/AiErrorCard.tsx'
+window.__mountErrorCard = (el, code, detail) => {
+  const r = createRoot(el)
+  r.render(React.createElement(AiErrorCard, {
+    code, detail, onRetry: () => {}, onDismiss: () => {},
+  }))
+  return () => r.unmount()
+}
+`
+  const cardOut = await build({
+    stdin: { contents: CARD_ENTRY, resolveDir: root, loader: 'tsx' },
+    bundle: true, format: 'iife', platform: 'browser', jsx: 'automatic', write: false,
+    define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
+  })
+  const cardVc = new VirtualConsole()
+  cardVc.on('jsdomError', () => {})
+  cardVc.on('error', () => {})
+  const cardDom = new JSDOM('<!doctype html><html><body><div id="c5"></div><div id="c4"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: cardVc })
+  const cw = cardDom.window
+  cw.eval(cardOut.outputFiles[0].text)
+  const c5El = cw.document.getElementById('c5')
+  const c4El = cw.document.getElementById('c4')
+  const unmountC5 = cw.__mountErrorCard(c5El, 500, 'AI 服务暂时不可用')
+  const unmountC4 = cw.__mountErrorCard(c4El, 429, '请求太频繁，请稍后再试')
+  await tick(60)
+  assert(c5El.querySelector('[data-testid="ai-error-card"]').getAttribute('data-severity') === 'danger'
+    && c5El.textContent.includes('AI 老师正在休息，请稍后再试')
+    && c5El.querySelector('[data-testid="ai-error-retry"]')
+    && c5El.textContent.includes('诊断：AI 服务暂时不可用'),
+  '运行时：500 → 红色（danger）系统提示 + 重试按钮 + 服务端中文诊断')
+  assert(c4El.querySelector('[data-testid="ai-error-card"]').getAttribute('data-severity') === 'warm'
+    && c4El.textContent.includes('AI 有点忙，歇一下再试'),
+  '运行时：429 保持暖色语气（限流可安抚，不必 alarming）')
+  unmountC5()
+  unmountC4()
+  assert(fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('三十八、'),
+  'README 沉淀双层错误边界与错误提示体系说明')
+
+  /* 运行时：真实服务层遇到 500 → 状态码与中文提示真的被投递出来
+     （生成器与信号模块打进同一个 bundle，保证是同一个模块实例） */
+  const DD_ENTRY = `
+import { createServerlessGenerator } from './src/services/dialogueDirector.ts'
+import * as signal from './src/services/aiErrorSignal.ts'
+window.__dd = { createServerlessGenerator, signal }
+`
+  const ddOut = await build({
+    stdin: { contents: DD_ENTRY, resolveDir: root, loader: 'tsx' },
+    bundle: true, format: 'iife', platform: 'browser', jsx: 'automatic', write: false,
+    define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
+  })
+  const ddVc = new VirtualConsole()
+  ddVc.on('jsdomError', () => {})
+  ddVc.on('error', () => {})
+  const ddDom = new JSDOM('<!doctype html><html><body></body></html>',
+    { url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: ddVc })
+  const dw = ddDom.window
+  dw.eval(ddOut.outputFiles[0].text)
+  const ddRealFetch = globalThis.fetch
+  const ddWindowFetch = dw.fetch
+  try {
+    /* 桩必须打在 jsdom 窗口上：bundle 在 window 里执行，
+       Node 的 globalThis.fetch 它看不见（jsdom 本身不实现 fetch） */
+    const ddStubFetch = async (_url, init) => {
+      const method = (init && init.method) || 'GET'
+      if (method === 'GET') {
+        return new Response(JSON.stringify({
+          ok: true, mode: 'live', configured: true, provider: 'test', model: 'test',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({
+        ok: false, fallback: true, error: '大模型服务内部出错了，已自动回退本地 Mock。',
+      }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    }
+    dw.fetch = ddStubFetch
+    globalThis.fetch = ddStubFetch
+    const ddGen = dw.__dd.createServerlessGenerator()
+    try {
+      await ddGen({
+        summary: '', topic: '市集',
+        scenario: { id: 's1', title: '在农夫市集挑苹果', goal: '挑水果', suggestedReplies: [] },
+        userCharacter: { name: '我', role: '学习者', personality: '好奇' },
+        aiCharacter: { name: 'Tom', role: '摊主', personality: '热情' },
+        targetWords: [], targetPhrases: [], history: [],
+        userInput: 'hi', difficulty: 'B1', correction: 'gentle', turn: 1,
+      })
+    } catch { /* Mock 兜底失败也不影响信号断言：信号在 throw 之前已投递 */ }
+    const ddSignal = dw.__dd.signal.takeAiErrorSignal()
+    assert(ddSignal && ddSignal.status === 500
+      && ddSignal.message.includes('大模型服务内部出错了')
+      && dw.__dd.signal.takeAiErrorSignal() === null,
+    '运行时：真实服务层遇到 500 → 状态码与中文提示被投递到信箱，且一次性消费')
+  } finally {
+    globalThis.fetch = ddRealFetch
+    dw.fetch = ddWindowFetch
+  }
+
+  /* ============================================================
+   * 三十九、useRegisterSW 迁移（virtual:pwa-register/react）
+   * ============================================================ */
+  {
+    /**
+     * 把 virtual:pwa-register/react 换成可控桩：
+     * - 模拟 needRefresh / offlineReady 由 false → true 的状态翻转；
+     * - 记录 updateServiceWorker 的调用参数，供断言「点刷新确实传了 true」。
+     * 真实插件的 hook 内部会注册 SW，桩只保留状态与回调契约。
+     */
+    const PWA_STUB = `
+import { useState } from 'react'
+/* calls 必须放在模块作用域：若随每次渲染重建，点击记录会被清空（探针自身的坑） */
+const calls = []
+export function useRegisterSW(options = {}) {
+  const [needRefresh, setNeedRefresh] = useState(false)
+  const [offlineReady, setOfflineReady] = useState(false)
+  const api = {
+    setNeedRefresh,
+    setOfflineReady,
+    calls,
+    options,
+    updateServiceWorker: async (reloadPage = true) => { calls.push(reloadPage) },
+  }
+  if (typeof globalThis !== 'undefined') globalThis.__pwaStub = api
+  return {
+    needRefresh: [needRefresh, setNeedRefresh],
+    offlineReady: [offlineReady, setOfflineReady],
+    updateServiceWorker: api.updateServiceWorker,
+  }
+}`
+    const pwaStubPlugin = {
+      name: 'pwa-register-stub',
+      setup(b) {
+        b.onResolve({ filter: /^virtual:pwa-register(\/react)?$/ },
+          (args) => ({ path: args.path, namespace: 'pwa-stub' }))
+        b.onLoad({ filter: /.*/, namespace: 'pwa-stub' },
+          () => ({ contents: PWA_STUB, loader: 'js', resolveDir: root }))
+      },
+    }
+
+    const PWA_ENTRY = `
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { UpdatePrompt } from './src/components/UpdatePrompt.tsx'
+window.__mountPwa = (el) => {
+  const r = createRoot(el)
+  r.render(React.createElement(UpdatePrompt))
+  return () => r.unmount()
+}`
+    const pwaOut = await build({
+      stdin: { contents: PWA_ENTRY, resolveDir: root, loader: 'tsx' },
+      bundle: true, format: 'iife', platform: 'browser', jsx: 'automatic', write: false,
+      define: { 'process.env.NODE_ENV': '"production"' },
+      plugins: [pwaStubPlugin], logLevel: 'silent',
+    })
+    const pwaVc = new VirtualConsole()
+    const pwaErrors = []
+    pwaVc.on('jsdomError', (e) => pwaErrors.push(e.message))
+    pwaVc.on('error', () => {}) /* React 的 act 警告不转发到宿主 */
+    const pwaDom = new JSDOM('<!doctype html><html><body><div id="pwa"></div></body></html>',
+      { url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: pwaVc })
+    const pw = pwaDom.window
+    /* jsdom 没有 serviceWorker：显式补一个，让组件进入「支持」分支 */
+    Object.defineProperty(pw.navigator, 'serviceWorker',
+      { value: { register: () => Promise.resolve({}) }, configurable: true })
+    pw.eval(pwaOut.outputFiles[0].text)
+    const pwaEl = pw.document.getElementById('pwa')
+    const pwaUnmount = pw.__mountPwa(pwaEl)
+
+    const pwaWait = async (pred) => {
+      for (let i = 0; i < 30; i++) {
+        if (pred()) return true
+        await tick(20)
+      }
+      return pred()
+    }
+
+    /* 初始：needRefresh=false，不应出现任何提示卡 */
+    await pwaWait(() => pwaEl.querySelector('[data-testid="pwa-update-prompt"]'))
+    assert(!pwaEl.querySelector('[data-testid="pwa-update-prompt"]')
+      && !pwaEl.querySelector('[data-testid="pwa-offline-ready"]'),
+    '运行时：无新版本时不渲染任何提示卡（needRefresh=false 静默）')
+
+    /* 模拟新 SW 就绪 → needRefresh 翻 true → 底部提示卡出现 */
+    pw.__pwaStub.setNeedRefresh(true)
+    await pwaWait(() => pwaEl.querySelector('[data-testid="pwa-update-prompt"]'))
+    const pwaCard = pwaEl.querySelector('[data-testid="pwa-update-prompt"]')
+    assert(!!pwaCard && pwaCard.textContent.includes('发现新版本，点击刷新')
+      && !!pwaCard.querySelector('[data-testid="update-prompt-refresh"]')
+      && !!pwaCard.querySelector('[data-testid="update-prompt-dismiss"]'),
+    '运行时：needRefresh=true → 底部悬浮提示卡出现，含刷新与稍后再说两个出口')
+
+    /* 底部定位：固定定位 + 位于底部导航之上（88px 偏移），不遮挡导航栏 */
+    const pwaCls = pwaCard.getAttribute('class') || ''
+    assert(pwaCls.includes('fixed') && pwaCls.includes('bottom-[calc(88px')
+      && pwaCls.includes('z-[70]') && pwaCls.includes('w-[min(92vw,420px)]'),
+    '运行时：提示卡固定在底部、位于底部导航之上，宽度受限不横向溢出')
+
+    /* 点击刷新 → 确实以 true 调用 updateServiceWorker */
+    pwaCard.querySelector('[data-testid="update-prompt-refresh"]').click()
+    await tick(20)
+    assert(pw.__pwaStub.calls.length === 1 && pw.__pwaStub.calls[0] === true,
+    '运行时：点「发现新版本，点击刷新」→ 恰好一次 updateServiceWorker(true)')
+
+    /* 点「稍后再说」→ 提示收起，学习不被打断 */
+    pw.__pwaStub.setNeedRefresh(false)
+    await tick(20)
+    pw.__pwaStub.setNeedRefresh(true)
+    await pwaWait(() => pwaEl.querySelector('[data-testid="update-prompt-refresh"]'))
+    const pwaCard2 = pwaEl.querySelector('[data-testid="pwa-update-prompt"]')
+    if (pwaCard2) pwaCard2.querySelector('[data-testid="update-prompt-dismiss"]').click()
+    await pwaWait(() => !pwaEl.querySelector('[data-testid="pwa-update-prompt"]'))
+    assert(!pwaEl.querySelector('[data-testid="pwa-update-prompt"]'),
+    '运行时：点「稍后再说」→ 提示卡收起，学习流程不被打断')
+
+    /* 卸载后零残留 */
+    pwaUnmount()
+    await tick(30)
+    assert(!pwaEl.querySelector('[data-testid="pwa-update-prompt"]')
+      && !pwaEl.querySelector('[data-testid="pwa-offline-ready"]')
+      && pwaErrors.length === 0,
+    '运行时：组件卸载后提示 DOM 零残留，且无控制台错误')
+
+    /* 静态断言：注册入口唯一 + 无 SW 环境静默降级 */
+    const pwaSrcReg = fs.readFileSync(path.join(root, 'src/pwa/registerSW.ts'), 'utf8')
+    const pwaSrcPrompt = fs.readFileSync(path.join(root, 'src/components/UpdatePrompt.tsx'), 'utf8')
+    assert(pwaSrcPrompt.includes("from 'virtual:pwa-register/react'")
+      && pwaSrcPrompt.includes('useRegisterSW')
+      && !pwaSrcPrompt.includes("from 'virtual:pwa-register'"),
+    '组件改用 virtual:pwa-register/react 的 useRegisterSW hook')
+    assert(!pwaSrcReg.includes("from 'virtual:pwa-register'")
+      && !pwaSrcReg.includes('registerSW('),
+    'registerSW.ts 不再调用 registerSW —— 全应用仅一处注册，杜绝 SW 重复注册')
+    assert(pwaSrcPrompt.includes('isServiceWorkerSupported()')
+      && pwaSrcPrompt.includes('if (!supported) return null'),
+    '无 serviceWorker 环境（隐私模式 / 老浏览器）静默不渲染，不给用户死界面')
+    assert(pwaSrcPrompt.includes('setNeedRefresh(false)')
+      && pwaSrcPrompt.includes('setOfflineReady(false)')
+      && !pwaSrcPrompt.includes('location.reload')
+      && !pwaSrcPrompt.includes('setInterval'),
+    '收起提示用插件自身的 setter，不自造定时轮询，也不在组件里直接 reload')
+  }
+
+  /* ============================================================
+   * 四十、AI 发音评测（Netlify evaluate · 限流复用 · 得分环 · XP 幂等）
+   * ============================================================ */
+  {
+    const evSrc = fs.readFileSync(path.join(root, 'netlify/functions/evaluate.ts'), 'utf8')
+    const judgeSrc = fs.readFileSync(path.join(root, 'src/services/pronunciationJudge.ts'), 'utf8')
+    const labSrc = fs.readFileSync(path.join(root, 'src/components/PronunciationLab.tsx'), 'utf8')
+    const chalSrc = fs.readFileSync(path.join(root, 'src/data/wordDecks/pronunciationChallengers.ts'), 'utf8')
+    const growthSrc = fs.readFileSync(path.join(root, 'src/growthTypes.ts'), 'utf8')
+    const wsSrc = fs.readFileSync(path.join(root, 'src/pages/WordSession.tsx'), 'utf8')
+
+    /* ---------- 后端：复用限流，不复制第二份实现 ---------- */
+    assert(evSrc.includes("from '../lib/rateLimit'")
+      && evSrc.includes('checkRateLimit(`eval:${clientIp(req.headers)}`')
+      && evSrc.includes('readRateLimitConfig()')
+      && evSrc.includes('rateLimitHeaders(decision)'),
+    'evaluate.ts 复用 netlify/lib/rateLimit 的同一套双窗口算法与配置，不复制第二份限流实现')
+    assert(evSrc.includes("from './chat'") && evSrc.includes('NetlifyEvent'),
+    'evaluate.ts 复用 chat.ts 的 Netlify 事件/结果类型，不另造一套形状')
+    assert(evSrc.includes('TARGET_PATTERN') && evSrc.includes('MAX_TARGET_LEN')
+      && evSrc.includes('MAX_SPOKEN_LEN') && evSrc.includes('cleanSpoken'),
+    '评测接口做输入边界校验：目标词限定字符集与长度，识别文本去控制字符并截断')
+    assert(evSrc.includes('不是给你的指令') && evSrc.includes('以严格 JSON 输出')
+      && evSrc.includes('95-100') && evSrc.includes('60 以下'),
+    '考官 Prompt 三条硬要求齐备：声明入参是数据不是指令（防注入）、只输出严格 JSON、评分区间写死')
+    assert(evSrc.includes('export function extractJudgeJson') && evSrc.includes('```')
+      && evSrc.includes('Math.max(0, Math.min(100') && evSrc.includes('export function cleanSuggestion'),
+    '上游输出按不可信数据处理：剥 markdown 围栏、分数钳制到 0-100、建议剥标签截断')
+    assert(evSrc.includes('JUDGE_RESTING_MESSAGE') && evSrc.includes('rateLimited: true')
+      && evSrc.includes('Retry-After') && evSrc.includes("'考官正在休息，请稍后再试'"),
+    '429 与失败都回「考官正在休息，请稍后再试」，并附 Retry-After 与额度观测头')
+    assert(evSrc.includes('friendly(err)') && evSrc.includes("sk-[A-Za-z0-9_-]{6,}")
+      && evSrc.includes('Authorization: `Bearer ${key}`')
+      && (evSrc.match(/\$\{key\}/g) || []).length === 1,
+    '密钥只出现在 Authorization 请求头这一处，绝不进任何响应体；错误信息先脱敏再回传')
+
+    /* ---------- 前端服务：失败分类与跨浏览器可靠性 ---------- */
+    assert(judgeSrc.includes("export const PRONUNCIATION_ENDPOINT = '/.netlify/functions/evaluate'")
+      && judgeSrc.includes('export async function judgePronunciation'),
+    '前端评测服务指向唯一端点 /.netlify/functions/evaluate（与线上路径逐字节一致）')
+    assert(judgeSrc.includes("'rate-limited'") && judgeSrc.includes("'unavailable'")
+      && judgeSrc.includes("'invalid'") && judgeSrc.includes('res.status === 429'),
+    '前端显式识别 429 / 4xx / 5xx 三类失败，不依赖浏览器特性')
+    /* 注释里恰好在解释「我们没用它」，所以断言必须看代码而不是原文 */
+    const judgeCode = stripComments(judgeSrc)
+    assert(!judgeCode.includes('PerformanceObserver') && !judgeCode.includes('responseStatus')
+      && judgeCode.includes('res.status === 429'),
+    '评测链路不依赖 PerformanceObserver 的 responseStatus（那是 Chrome 109+ 专属，Safari 会静默吞掉 429），而是直接读 res.status')
+    assert(judgeSrc.includes('normalizeScore') && judgeSrc.includes('cleanSuggestion')
+      && judgeSrc.includes('JUDGE_TIMEOUT_MS'),
+    '前端对分数与建议做二次校验与清洗，并带超时保护')
+
+    /* ---------- 易错词库 ---------- */
+    assert(chalSrc.includes('export const PRONUNCIATION_CHALLENGERS')
+      && chalSrc.includes('export function challengerFor')
+      && chalSrc.includes('export function groupChallengersByCategory'),
+    '易错词库独立成文件：提供词条表、按词查表与按分类分组三个出口')
+    assert(chalSrc.includes("'th'") && chalSrc.includes("'vw'") && chalSrc.includes("'lr'")
+      && chalSrc.includes("'ending'") && chalSrc.includes("'stress'") && chalSrc.includes("'phrase'"),
+    '易错词覆盖 6 类真实发音障碍：舌尖音 / v-w / l-r / 词尾辅音 / 重音 / 连读')
+    /* 同理：文件头注释里就写着「它不注册进 DECK_IDS」，断言必须看代码 */
+    const chalCode = stripComments(chalSrc)
+    assert(!chalCode.includes('DECK_IDS') && !chalCode.includes('DeckId')
+      && !chalCode.includes('makeWord('),
+    '易错词库不注册成第 10 个词库：不动 DECK_IDS / DeckId / 五步闭环的词表调度')
+
+    /* ---------- UI：口音、得分环、防抖、XP ---------- */
+    assert(labSrc.includes("'en-US'") && labSrc.includes("'en-GB'") && labSrc.includes("'en-AU'")
+      && labSrc.includes('speak(word, { rate: 1, accent'),
+    '口音三档通过 SpeechSynthesis 的 lang 标签切换，标准音可自由试听')
+    assert(labSrc.includes('export function scoreTone') && labSrc.includes('score >= 90')
+      && labSrc.includes('score >= 70') && labSrc.includes('function ScoreRing'),
+    '专属得分环：≥90 绿 / ≥70 黄 / <70 红三档语气，配色取自项目自有色板')
+    assert(labSrc.includes('COOLDOWN_MS') && labSrc.includes('disabled={busy || cooldown > 0}')
+      && labSrc.includes('if (phase !== \'idle\' || cooldown > 0) return'),
+    '前端防抖：录音进行中禁用 + 冷却倒计时，连点也只会发一次请求')
+    assert(labSrc.includes('recognitionSupported()') && labSrc.includes('pronunciationSupport()')
+      && labSrc.includes('请用下面的输入框'),
+    '浏览器不支持语音识别时明确提示改用文字输入，练习不中断')
+    assert(labSrc.includes('awardXp({') && labSrc.includes('pronunciation_${passed ? \'pass\' : \'try\'}')
+      && labSrc.includes('XP_RULES.pronunciation_pass') && labSrc.includes('XP_RULES.pronunciation_try'),
+    'XP 走统一入口 awardXp()，事件 id 稳定 → 同一词同一天天然幂等')
+    assert(!stripComments(labSrc).includes('wordSessionDraft')
+      && !stripComments(labSrc).includes('draft.step'),
+    '发音面板是闭环之外的辅助面板：不写草稿、不参与状态机')
+
+    /* ---------- XP 规则表 ---------- */
+    assert(growthSrc.includes('pronunciation_pass: 10') && growthSrc.includes('pronunciation_try: 2'),
+    'XP 规则表新增两条：发音评测通过 10 XP / 未通过 2 XP（金额写在唯一规则表里，可统一调参）')
+
+    /* ---------- 词卡接入：五步闭环必须原封不动 ---------- */
+    assert(wsSrc.includes('发音练习') && wsSrc.includes('<PronunciationLab')
+      && wsSrc.includes('challengerFor(entry.word)'),
+    '词卡新增「发音练习」按钮并挂载评测面板；命中易错词库的词额外打「易错词」角标优先推送')
+    assert(wsSrc.includes('const commit = (next: StepRecord')
+      && wsSrc.includes("commit(next, 'verify')")
+      && wsSrc.includes("commit({ ...record }, 'spell')")
+      && wsSrc.includes("advance({ ...record, spellingTries: tries, spellingPassed: true")
+      && !stripComments(wsSrc).includes("draft.step = 'pronunciation'"),
+    '五步闭环零破坏：S1→S2、S2.5→S3、S3→下一词三条提交路径一字未改，也没有新增步骤')
+
+    /* ---------- 本地联调台 ---------- */
+    assert(nfServer.includes("app.all(['/.netlify/functions/evaluate']")
+      && nfServer.includes('invokeEvaluate(') && nfServer.includes('toClientHeaders(req)'),
+    '本地 Express 复用生产的 invokeEvaluate，与 Netlify 跑同一份评测核心')
+    assert(nfVite.includes("'/.netlify/functions'")
+      && !stripComments(nfVite).includes("'/.netlify/functions/evaluate'"),
+    'Vite 代理用前缀匹配，evaluate 端点自动命中——不需要新增代理项，也不需要 rewrite')
+    assert(fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('四十、'),
+    'README 沉淀 AI 发音评测章节')
+
+    /* ---------- 运行时：把 evaluate 真跑起来 ---------- */
+    const EV = await loadModule('netlify/functions/evaluate.ts', 'netlify-evaluate')
+    const evSavedEnv = {
+      LLM_API_KEY: process.env.LLM_API_KEY,
+      LLM_API_BASE: process.env.LLM_API_BASE,
+      LLM_MODEL: process.env.LLM_MODEL,
+      RATE_LIMIT_PER_MINUTE: process.env.RATE_LIMIT_PER_MINUTE,
+      RATE_LIMIT_PER_DAY: process.env.RATE_LIMIT_PER_DAY,
+    }
+    const evRealFetch = globalThis.fetch
+    let evUpstreamBody = ''
+    let evUpstreamCalls = 0
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('/chat/completions')) {
+        evUpstreamCalls += 1
+        evUpstreamBody = String((init && init.body) || '')
+        return new Response(JSON.stringify({
+          choices: [{ message: { content: '{"score": 92, "suggestion": "你的 /θ/ 咬舌音没发准，舌尖要轻触上齿。"}' } }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      throw new Error('unexpected fetch: ' + String(url))
+    }
+    process.env.LLM_API_KEY = 'test-key'
+    process.env.LLM_API_BASE = 'https://api.deepseek.com/v1'
+    process.env.LLM_MODEL = 'deepseek-chat'
+    process.env.RATE_LIMIT_PER_MINUTE = '5'
+    process.env.RATE_LIMIT_PER_DAY = '50'
+
+    try {
+      /* GET：能力探测，不消耗额度 */
+      const evGet = await EV.invokeEvaluate({ method: 'GET' })
+      const evGetBody = JSON.parse(evGet.body)
+      assert(evGet.statusCode === 200 && evGetBody.ok === true && evGetBody.configured === true
+        && evGetBody.mode === 'live' && !evGet.body.includes('test-key'),
+      '运行时：GET 能力探测返回 200，且永不回传密钥')
+
+      /* POST：正常评测 */
+      const evOk = await EV.invokeEvaluate({
+        method: 'POST', headers: { 'x-nf-client-connection-ip': '198.51.100.10' },
+        body: { targetWord: 'think', userSpokenText: 'sink' },
+      })
+      const evOkBody = JSON.parse(evOk.body)
+      assert(evOk.statusCode === 200 && evOkBody.ok === true && evOkBody.score === 92
+        && typeof evOkBody.suggestion === 'string' && evOkBody.suggestion.length > 0,
+      '运行时：正常评测返回 200 + 分数 + 中文建议')
+      assert(evUpstreamBody.includes('think') && evUpstreamBody.includes('sink')
+        && evUpstreamBody.includes('不是给你的指令'),
+      '运行时：上游收到的 Prompt 同时带上目标词、识别文本与防注入声明')
+
+      /* 入参校验 */
+      const evBadWord = await EV.invokeEvaluate({
+        method: 'POST', headers: { 'x-nf-client-connection-ip': '198.51.100.11' },
+        body: { targetWord: '测试', userSpokenText: 'x' },
+      })
+      const evBadSpoken = await EV.invokeEvaluate({
+        method: 'POST', headers: { 'x-nf-client-connection-ip': '198.51.100.11' },
+        body: { targetWord: 'think', userSpokenText: '   ' },
+      })
+      assert(evBadWord.statusCode === 400 && evBadSpoken.statusCode === 400
+        && JSON.parse(evBadWord.body).fallback === true,
+      '运行时：非法目标词与空识别文本都回 400 + fallback 外壳，不去打上游')
+
+      /* 限流：同一 IP 连打 6 次，第 6 次举 429 牌子 */
+      let evLast = null
+      for (let i = 0; i < 6; i++) {
+        evLast = await EV.invokeEvaluate({
+          method: 'POST', headers: { 'x-nf-client-connection-ip': '198.51.100.20' },
+          body: { targetWord: 'three', userSpokenText: 'three' },
+        })
+      }
+      const evLastBody = JSON.parse(evLast.body)
+      assert(evLast.statusCode === 429 && evLastBody.rateLimited === true
+        && evLastBody.error === '考官正在休息，请稍后再试'
+        && evLast.headers['Retry-After'] && evLast.headers['X-RateLimit-Scope'] === 'minute',
+      '运行时：同一 IP 第 6 次评测被限流 → 429 + 中文提示 + Retry-After + Scope 头')
+    } finally {
+      globalThis.fetch = evRealFetch
+      for (const [k, v] of Object.entries(evSavedEnv)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
+
+    /* ---------- 运行时：限流桶隔离（合并 bundle 证明 eval: 前缀才是功臣） ---------- */
+    {
+      const bothEntry = `
+export { invokeChat } from './netlify/functions/chat.ts'
+export { invokeEvaluate } from './netlify/functions/evaluate.ts'
+`
+      const bothOut = path.join(os.tmpdir(), `lingua-smoke-both-${process.pid}.mjs`)
+      await build({
+        stdin: { contents: bothEntry, resolveDir: root, loader: 'ts' },
+        bundle: true, format: 'esm', platform: 'node', outfile: bothOut, logLevel: 'silent',
+      })
+      tempFiles.push(bothOut)
+      const BOTH = await import(pathToFileURL(bothOut).href + `?t=${Date.now()}`)
+      const isoRealFetch = globalThis.fetch
+      const isoSavedKey = process.env.LLM_API_KEY
+      process.env.LLM_API_KEY = 'test-key'
+      globalThis.fetch = async (url, init) => {
+        if (String(url).includes('/chat/completions')) {
+          const body = String((init && init.body) || '')
+          const content = body.includes('targetWord')
+            ? '{"score": 88, "suggestion": "咬舌音再准确一点。"}'
+            : '{"reply": "ok", "feedback": {}}'
+          return new Response(JSON.stringify({ choices: [{ message: { content } }] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } })
+        }
+        throw new Error('unexpected fetch: ' + String(url))
+      }
+      try {
+        /* 同一模块实例 → 同一份限流 Map：只有 eval: 前缀能让两个功能各算各的 */
+        const isoIp = { 'x-nf-client-connection-ip': '198.51.100.30' }
+        for (let i = 0; i < 6; i++) {
+          await BOTH.invokeEvaluate({
+            method: 'POST', headers: isoIp, body: { targetWord: 'light', userSpokenText: 'right' },
+          })
+        }
+        const isoChat = await BOTH.invokeChat({
+          method: 'POST', headers: isoIp, body: { messages: [{ role: 'user', content: 'hi' }] },
+        })
+        assert(isoChat.statusCode === 200,
+          '运行时：评测桶被打满后，同一 IP 的对话请求依然 200 —— eval: 前缀真的把两个功能隔开了')
+      } finally {
+        globalThis.fetch = isoRealFetch
+        if (isoSavedKey === undefined) delete process.env.LLM_API_KEY
+        else process.env.LLM_API_KEY = isoSavedKey
+      }
+    }
+
+    /* ---------- 运行时：JSON 解析的四种边界 ---------- */
+    assert(EV.extractJudgeJson('```json\n{"score": 88, "suggestion": "很好"}\n```').score === 88,
+      '运行时：能剥掉 markdown 围栏再解析 JSON')
+    assert(EV.extractJudgeJson('考官点评如下：{"score": 77, "suggestion": "重音偏了"} 加油').score === 77,
+      '运行时：能从前后的解释文字里夹出 JSON 块')
+    assert(EV.extractJudgeJson('{"score": 180, "suggestion": "x"}').score === 100
+      && EV.extractJudgeJson('{"score": -5, "suggestion": "x"}').score === 0,
+      '运行时：越界分数被钳制到 0-100，不让模型随口给负分或千分')
+    assert(EV.extractJudgeJson('no json here') === null
+      && EV.extractJudgeJson('{"suggestion": "缺少分数"}') === null,
+      '运行时：上游没给出可用 JSON 时返回 null（不编造分数）')
+    assert(EV.cleanSuggestion('<b>加粗</b> *强调* 建议').includes('加粗')
+      && !EV.cleanSuggestion('<b>加粗</b> 建议').includes('<b>'),
+      '运行时：建议文本剥掉 HTML 标签与 markdown 标记后再展示')
+
+    /* ---------- 运行时：前端服务与易错词库 ---------- */
+    const PJ = await loadModule('src/services/pronunciationJudge.ts', 'pronunciation-judge')
+    const PC = await loadModule('src/data/wordDecks/pronunciationChallengers.ts', 'pronunciation-challengers')
+    assert(PJ.normalizeScore(92.4) === 92 && PJ.normalizeScore(150) === 100
+      && PJ.normalizeScore(-3) === 0 && PJ.normalizeScore('abc') === null,
+      '运行时：前端分数校验同样钳制到 0-100，非法值判为无效')
+    assert(PJ.judgeFailureMessage('rate-limited') === '考官正在休息，请稍后再试'
+      && PJ.judgeFailureMessage('unavailable') === '考官正在休息，请稍后再试'
+      && PJ.judgeFailureMessage('aborted') !== '考官正在休息，请稍后再试',
+      '运行时：限流与失败收敛成同一句友好提示，取消场景另有文案')
+    const pcCount = PC.PRONUNCIATION_CHALLENGERS.length
+    assert(pcCount >= 10 && pcCount <= 20,
+      `运行时：易错词库共 ${pcCount} 条，落在要求的 10-20 条区间内`)
+    assert(PC.challengerFor('THINK').word === 'think' && PC.isChallenger('three')
+      && !PC.isChallenger('apple')
+      && PC.groupChallengersByCategory().length === 6,
+      '运行时：易错词按词查表大小写不敏感，分类分组覆盖 6 类')
+
+    /* ---------- 运行时：真挂载发音面板，走完「口音 → 降级 → 手动输入 → 得分环」 ---------- */
+    {
+      const LAB_ENTRY = `
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { AppProvider } from './src/store/useAppStore.tsx'
+import { PronunciationLab } from './src/components/PronunciationLab.tsx'
+window.__mountLab = (el, entry) => {
+  const r = createRoot(el)
+  r.render(React.createElement(AppProvider, null, React.createElement(PronunciationLab, { entry })))
+  return () => r.unmount()
+}
+`
+      const labOut = await build({
+        stdin: { contents: LAB_ENTRY, resolveDir: root, loader: 'tsx' },
+        bundle: true, format: 'iife', platform: 'browser', jsx: 'automatic', write: false,
+        define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
+      })
+      const labVc = new VirtualConsole()
+      const labErrors = []
+      labVc.on('jsdomError', (e) => labErrors.push(e.message))
+      labVc.on('error', () => {})
+      const labDom = new JSDOM('<!doctype html><html><body><div id="lab"></div></body></html>',
+        { url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: labVc })
+      const lw = labDom.window
+      /* jsdom 没实现 structuredClone / randomUUID，但 AppProvider 的数据迁移要用：
+         从 Node 宿主借一份过去（垫的是环境能力，不是业务逻辑）。 */
+      if (typeof lw.structuredClone !== 'function') {
+        lw.structuredClone = (v) => globalThis.structuredClone(v)
+      }
+      if (!lw.crypto) lw.crypto = {}
+      if (typeof lw.crypto.randomUUID !== 'function') {
+        lw.crypto.randomUUID = () => 'uuid-' + Math.random().toString(16).slice(2)
+      }
+      /* jsdom 没有 SpeechRecognition —— 正好用来验证「降级为文字输入」这条路 */
+      const labFetchCalls = []
+      lw.fetch = async (url, init) => {
+        labFetchCalls.push({ url: String(url), body: init && init.body ? JSON.parse(init.body) : null })
+        return {
+          ok: true, status: 200,
+          text: async () => JSON.stringify({
+            ok: true, score: 92, suggestion: '你的 /θ/ 咬舌音没发准，舌尖要轻触上齿。',
+          }),
+        }
+      }
+      lw.eval(labOut.outputFiles[0].text)
+      const labEl = lw.document.getElementById('lab')
+      const labUnmount = lw.__mountLab(labEl, {
+        word: 'think', phonetic: '/θɪŋk/', pos: 'v.', meaningZh: '想', meaningEn: 'to think',
+        tags: [], cefr: 'B1', examples: ['I think so.'], imageQuery: '', imageUrl: '',
+        imageAlt: '', collocations: [], pronunciationTip: '舌尖轻触上齿送气。',
+      })
+      const labWait = async (pred) => {
+        for (let i = 0; i < 40; i++) {
+          if (pred()) return true
+          await tick(25)
+        }
+        return pred()
+      }
+      const labBtn = (text) => [...labEl.querySelectorAll('button')]
+        .find((b) => (b.textContent || '').includes(text) && !b.disabled)
+
+      /* ① 口音下拉三档（先等 React 真正提交，再查 DOM） */
+      await labWait(() => !!labEl.querySelector('#pron-accent'))
+      const labSelect = labEl.querySelector('#pron-accent')
+      const labAccents = labSelect ? [...labSelect.options].map((o) => o.value) : []
+      assert(labSelect && labAccents.length === 3
+        && labAccents.includes('en-US') && labAccents.includes('en-GB') && labAccents.includes('en-AU'),
+      '运行时：口音下拉真实渲染出美音 / 英音 / 澳音三档，lang 标签与 SpeechSynthesis 一致')
+
+      /* ② 易错词库标签页 */
+      const labChallengerTab = labBtn('易错词库')
+      labChallengerTab.click()
+      await labWait(() => !!labEl.querySelector('[data-testid="pronunciation-challengers"]'))
+      const labChalWords = labEl.querySelectorAll('[data-testid="pronunciation-challengers"] button')
+      assert(labChalWords.length >= 10 && labChalWords.length <= 20,
+        `运行时：易错词库标签页真实渲染出 ${labChalWords.length} 个词，落在 10-20 条区间内`)
+
+      /* ③ 选中一个易错词 → 目标切换到该词 */
+      labChalWords[0].click()
+      await tick(40)
+      assert((labEl.textContent || '').includes('think'),
+        '运行时：点易错词后评测目标切换到该词（易错词优先推送）')
+
+      /* ④ 无 SpeechRecognition → 明确引导改用文字输入 */
+      const labRecBtn = labBtn('开始录音')
+      assert(!!labRecBtn, '运行时：录音按钮真实存在')
+      labRecBtn.click()
+      await labWait(() => (labEl.textContent || '').includes('不支持语音识别'))
+      assert((labEl.textContent || '').includes('不支持语音识别')
+        && (labEl.textContent || '').includes('输入框'),
+      '运行时：浏览器不支持语音识别时明确引导改用文字输入，练习不中断、不会崩')
+
+      /* ⑤ 手动输入 → 评测请求 → 得分环 */
+      const labInput = labEl.querySelector('input.en-text')
+      const labSetter = Object.getOwnPropertyDescriptor(lw.HTMLInputElement.prototype, 'value').set
+      labSetter.call(labInput, 'sink')
+      labInput.dispatchEvent(new lw.Event('input', { bubbles: true }))
+      await tick(40)
+      const labEvalBtn = labBtn('用这段文字评测')
+      labEvalBtn.click()
+      await labWait(() => (labEl.textContent || '').includes('考官点评'))
+      assert(labFetchCalls.length === 1
+        && labFetchCalls[0].url.includes('/.netlify/functions/evaluate')
+        && labFetchCalls[0].body.targetWord === 'think'
+        && labFetchCalls[0].body.userSpokenText === 'sink',
+      '运行时：手动输入触发评测请求，端点、目标词与识别文本全部正确')
+      const labRingText = labEl.textContent || ''
+      assert(labRingText.includes('92') && labRingText.includes('发音到位')
+        && labRingText.includes('咬舌音'),
+      '运行时：评测结果渲染出得分环（92 分 → 发音到位）与 AI 建议文案')
+      assert(labErrors.length === 0,
+        `运行时：挂载与交互全程零 jsdom 错误${labErrors.length ? `（首个：${labErrors[0].slice(0, 120)}）` : ''}`)
+      labUnmount()
+    }
+
+    /* ---------- 运行时：XP 幂等（同一事件 id 只入账一次） ---------- */
+    {
+      /* growth.ts 在第十八章被刻意放进独立块作用域，这里另起一份干净实例 */
+      const GRP = await loadModule('src/services/growth.ts', 'growth-pronunciation')
+      const savedWin2 = globalThis.window
+      delete globalThis.window
+      GRP.resetGrowthConfig()
+      GRP.configureGrowth({ now: () => Date.now(), dailyGoal: 30, enabled: true })
+      const pronId = `pron-idem-${Date.now()}`
+      const p1 = GRP.awardXp({ id: pronId, source: 'wordlab', action: 'pronunciation_pass', amount: 10, meta: { sessionKey: 'think' } })
+      const p2 = GRP.awardXp({ id: pronId, source: 'wordlab', action: 'pronunciation_pass', amount: 10, meta: { sessionKey: 'think' } })
+      assert(p1.granted && p1.amount === 10 && !p2.granted && p2.reason === 'duplicate',
+        '运行时：发音评测 XP 事件 id 稳定 → 重复评测同一词不会二次入账（幂等）')
+      Object.defineProperty(globalThis, 'window', { value: savedWin2, writable: true, configurable: true })
+      GRP.resetGrowthConfig()
+    }
+  }
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

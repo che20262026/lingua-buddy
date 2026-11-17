@@ -1,46 +1,27 @@
-import { registerSW } from 'virtual:pwa-register'
+/**
+ * [PWA] Service Worker 能力探测与共享类型。
+ *
+ * ⚠️ 注册入口已迁移：本模块**不再调用 registerSW**。
+ * 旧实现用 `virtual:pwa-register` 手写注册，再由组件 useEffect 调用；
+ * 现在改用 `virtual:pwa-register/react` 的 useRegisterSW hook（见
+ * src/components/UpdatePrompt.tsx），注册动作发生在该 hook 内部。
+ *
+ * 两者只能二选一 —— 若两处都注册，Service Worker 会被注册两次：
+ * waiting 事件触发两遍、onNeedRefresh 回调两遍、controlling 后重复刷新。
+ * 因此「全应用唯一注册入口」这条红线现在由
+ * `virtual:pwa-register/react` 这一处承担，本模块只做能力探测。
+ *
+ * 能力探测存在的意义：隐私模式 / 老浏览器 / jsdom 等无 serviceWorker 的环境里，
+ * 插件自带的 registerSW 会静默降级为 noop（updateServiceWorker 永不触发刷新），
+ * UI 层据此提前收声，不弹任何用户看不懂的提示。
+ */
 
-/** registerSW 返回的「应用新版本」函数；传 true 才会 reload 页面 */
+/** registerSW 返回的「应用新版本」函数；传 true 才会让 waiting SW 接管并重载页面 */
 export type UpdateServiceWorker = (reloadPage?: boolean) => Promise<void>
 /** 旧类型名保留为兼容别名，既有引用无需改动 */
 export type UpdateSW = UpdateServiceWorker
 
-export interface PwaCallbacks {
-  /** 检测到新版本已就绪：只通知 UI，绝不自动刷新 */
-  onNeedRefresh: () => void
-  /** App Shell 预缓存完成，可以离线打开 */
-  onOfflineReady: () => void
-  /** 注册失败（隐私模式 / 不支持 / 脚本 404）时仍然可以正常在线使用 */
-  onRegisterError?: (error: unknown) => void
-}
-
-const NOOP: UpdateServiceWorker = async () => {}
-
-/**
- * [PWA] 全应用唯一的 Service Worker 注册入口。
- *
- * 配合 vite.config.ts 的 registerType: 'prompt'：
- * - 新 SW 进入 waiting 状态只会触发 onNeedRefresh；
- * - 只有用户点击「立即更新」，组件才调用 updateSW(true)；
- * - 绝不 skipWaiting / clientsClaim / 自动 reload，学习到一半不会被打断。
- *
- * 无 serviceWorker 的环境（jsdom、旧浏览器、隐私模式）静默降级为 noop，
- * 应用所有既有功能照常工作。
- */
-export function setupServiceWorker(callbacks: PwaCallbacks): UpdateServiceWorker {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return NOOP
-  try {
-    return registerSW({
-      immediate: false,
-      onNeedRefresh() { callbacks.onNeedRefresh() },
-      onOfflineReady() { callbacks.onOfflineReady() },
-      onRegisterError(error) {
-        console.warn('[LinguaBuddy] Service Worker 注册失败，应用仍可在线使用：', error)
-        callbacks.onRegisterError?.(error)
-      },
-    })
-  } catch (error) {
-    console.warn('[LinguaBuddy] Service Worker 初始化失败，应用仍可在线使用：', error)
-    return NOOP
-  }
+/** 当前环境是否真的支持 Service Worker */
+export function isServiceWorkerSupported(): boolean {
+  return typeof navigator !== 'undefined' && 'serviceWorker' in navigator
 }

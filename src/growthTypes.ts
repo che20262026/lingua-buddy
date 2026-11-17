@@ -152,6 +152,10 @@ export const XP_RULES = {
   daily_goal: 20,
   /** [China Learner Track] 完成一个资源单元（结构级反馈或微场景任务完成） */
   china_track_complete: 12,
+  /** [AI 发音评测] 得分 ≥ 80 的发音评测（同一词同一天只发一次，事件 id 幂等） */
+  pronunciation_pass: 10,
+  /** [AI 发音评测] 得分 < 80 的发音评测，鼓励性小额奖励（同样按事件 id 幂等） */
+  pronunciation_try: 2,
 } as const
 
 /** 明确不发 XP 的行为（供文档与断言引用） */

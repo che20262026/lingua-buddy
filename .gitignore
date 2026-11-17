@@ -7,3 +7,6 @@ dev-dist/
 npm-debug.log*
 .env
 .vs/
+
+# Local Netlify folder
+.netlify
