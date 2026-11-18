@@ -362,6 +362,250 @@ details > summary::-webkit-details-marker { display: none; }
   .ff-mic-live { animation: none; }
 }
 
+/* ---------------- [Desktop Pet] 输入台旁的电子宠物 ----------------
+ * 布局：absolute 挂在 sticky 输入台上，停泊在输入行「上方右侧」。
+ *   - 不进入 textarea / 麦克风 / 发送的 flex 流 → 永远不挤压打字区；
+ *   - dock pointer-events:none，只有小鱼按钮接收点击 → 不挡消息滚动；
+ * 动作：全部由 data-state + ff-motion-* 选中的 CSS @keyframes 驱动，
+ *   只动 transform / opacity，JS 不写 style.animation、不跑 setInterval。
+ */
+
+.dp-dock {
+  position: absolute;
+  right: 10px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: 78px;
+  height: 78px;
+  pointer-events: none;
+}
+
+.dp-pet {
+  --dp-heart: #ff5b8a;
+  position: relative;
+  display: block;
+  width: 78px;
+  height: 78px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dp-pet:focus-visible {
+  outline: 2px solid var(--ff-accent-ink);
+  outline-offset: 3px;
+}
+
+.dp-body {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 86%;
+  will-change: transform, opacity;
+}
+
+/* 内层形象保留原契约，但关掉它自己的动画，避免两套 keyframes 打架 */
+.dp-avatar,
+.dp-avatar.ff-avatar-speaking,
+.dp-avatar:not(.ff-avatar-speaking) {
+  animation: none !important;
+}
+
+/* —— 通用四态：呼吸 / 思考 / 说话打拍子 / 被摸蹦一下 —— */
+@keyframes dp-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-3%) scale(1.02, 0.99); }
+}
+@keyframes dp-think {
+  0%, 100% { transform: rotate(-4deg) translateX(-3%); }
+  50%      { transform: rotate(4deg) translateX(3%) translateY(-2%); }
+}
+@keyframes dp-talk {
+  0%, 100% { transform: translateY(0) rotate(-2deg) scale(1); }
+  50%      { transform: translateY(-5%) rotate(2deg) scale(1.02, 0.98); }
+}
+@keyframes dp-happy-hop {
+  0%, 100% { transform: translateY(0) scale(1); }
+  40%      { transform: translateY(-18%) scale(1.06, 0.95); }
+  70%      { transform: translateY(2%) scale(0.96, 1.04); }
+}
+
+.dp-state-idle .dp-body     { animation: dp-breathe 3.6s ease-in-out infinite; }
+.dp-state-thinking .dp-body { animation: dp-think 1.15s ease-in-out infinite; }
+.dp-state-speaking .dp-body { animation: dp-talk 0.8s ease-in-out infinite; }
+.dp-state-happy .dp-body    { animation: dp-happy-hop 620ms cubic-bezier(0.16, 1, 0.3, 1) 1 both; }
+
+/* —— 人设分岔（同名 motion 直接复用角色既有性格） —— */
+
+/* 精灵·少年：待机快速漂浮，思考焦躁地游来游去 */
+@keyframes dp-idle-elf {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  25%      { transform: translateY(-8%) translateX(4%); }
+  75%      { transform: translateY(4%) translateX(-4%); }
+}
+@keyframes dp-think-elf {
+  0%, 100% { transform: translateX(-8%) rotate(-5deg); }
+  25%      { transform: translateX(8%) rotate(6deg) translateY(-4%); }
+  50%      { transform: translateX(-5%) rotate(-7deg) translateY(3%); }
+  75%      { transform: translateX(7%) rotate(4deg); }
+}
+.dp-state-idle.ff-motion-bounce .dp-body     { animation: dp-idle-elf 1.6s ease-in-out infinite; }
+.dp-state-thinking.ff-motion-bounce .dp-body { animation: dp-think-elf 0.85s ease-in-out infinite; }
+
+/* 萝莉·青年：待机左右摇摆，说话幅度小且可爱 */
+@keyframes dp-idle-loli {
+  0%, 100% { transform: rotate(-6deg); }
+  50%      { transform: rotate(6deg); }
+}
+@keyframes dp-speak-loli {
+  0%, 100% { transform: rotate(-3deg) scale(0.98); }
+  50%      { transform: rotate(3deg) scale(1.02); }
+}
+.dp-state-idle.ff-motion-sway .dp-body     { animation: dp-idle-loli 2.8s ease-in-out infinite; }
+.dp-state-speaking.ff-motion-sway .dp-body { animation: dp-speak-loli 0.9s ease-in-out infinite; }
+
+/* 御姐·成年：待机慵懒地趴着，说话优雅缓慢 */
+@keyframes dp-idle-onee {
+  0%, 100% { transform: translateY(2%) rotate(-1deg) scaleY(0.98); }
+  50%      { transform: translateY(-2%) rotate(1deg) scaleY(1.02); }
+}
+@keyframes dp-speak-onee {
+  0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+  50%      { transform: translateY(-5%) rotate(1.5deg); }
+}
+.dp-state-idle.ff-motion-float .dp-body     { animation: dp-idle-onee 4.6s ease-in-out infinite; }
+.dp-state-speaking.ff-motion-float .dp-body { animation: dp-speak-onee 1.6s ease-in-out infinite; }
+
+/* —— 思考：头顶问号 + 旋转虚线圈 —— */
+.dp-state-thinking .dp-body::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border: 2px dashed var(--ff-ring);
+  border-radius: 999px;
+  animation: dp-spin 1.8s linear infinite;
+}
+@keyframes dp-spin {
+  from { transform: rotate(0deg); opacity: 0.35; }
+  to   { transform: rotate(360deg); opacity: 0.85; }
+}
+.dp-question {
+  position: absolute;
+  top: -10px;
+  right: -4px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--ff-accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 4px 12px var(--ff-glow);
+  animation: dp-question 1.05s ease-in-out infinite;
+}
+@keyframes dp-question {
+  0%, 100% { transform: translateY(0) scale(0.92); opacity: 0.75; }
+  50%      { transform: translateY(-7px) scale(1.06); opacity: 1; }
+}
+
+/* —— 说话：小嘴巴张合（纯 CSS 缩放，JS 不碰 style） —— */
+.dp-mouth {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  width: 13%;
+  height: 7%;
+  border-radius: 999px;
+  background: var(--ff-accent-ink);
+  opacity: 0;
+  transform: translate(-50%, -50%) scaleY(0.3);
+}
+.dp-state-speaking .dp-mouth {
+  opacity: 0.72;
+  animation: dp-mouth 0.34s steps(2, end) infinite;
+}
+@keyframes dp-mouth {
+  0%, 100% { transform: translate(-50%, -50%) scaleY(0.3); }
+  50%      { transform: translate(-50%, -50%) scaleY(1); }
+}
+
+/* —— happy：三颗爱心错峰上浮 + 一句人设短句 —— */
+.dp-heart {
+  position: absolute;
+  top: 2px;
+  color: var(--dp-heart);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.dp-heart-1 { left: 2px; }
+.dp-heart-2 { left: 50%; margin-left: -7px; }
+.dp-heart-3 { right: 0; }
+.dp-state-happy .dp-heart-1 { animation: dp-heart-float 900ms ease-out both; }
+.dp-state-happy .dp-heart-2 { animation: dp-heart-float 900ms ease-out 90ms both; }
+.dp-state-happy .dp-heart-3 { animation: dp-heart-float 900ms ease-out 180ms both; }
+@keyframes dp-heart-float {
+  0%   { transform: translateY(6px) scale(0.6); opacity: 0; }
+  25%  { transform: translateY(-6px) scale(1.1); opacity: 1; }
+  100% { transform: translateY(-34px) scale(0.9); opacity: 0; }
+}
+.dp-say {
+  position: absolute;
+  left: 50%;
+  top: -32px;
+  z-index: 2;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid var(--ff-ring);
+  background: #fff;
+  color: var(--ff-accent-ink);
+  padding: 3px 9px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px var(--ff-glow);
+  animation: dp-say 900ms ease-out both;
+}
+@keyframes dp-say {
+  0%   { transform: translate(-50%, 6px) scale(0.9); opacity: 0; }
+  20%  { transform: translate(-50%, 0) scale(1); opacity: 1; }
+  80%  { transform: translate(-50%, 0) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -8px) scale(0.96); opacity: 0; }
+}
+
+/* 小屏收回一点尺寸，仍保持 ≥44px 触摸目标 */
+@media (max-width: 480px) {
+  .dp-dock { right: 6px; width: 64px; height: 64px; }
+  .dp-pet { width: 64px; height: 64px; }
+  .dp-question { width: 20px; height: 20px; font-size: 12px; }
+  .dp-heart { font-size: 13px; }
+}
+
+/* 减少动态效果：循环动作全关；爱心/短句保留 0.01ms 以便 animationend 仍能归还状态 */
+@media (prefers-reduced-motion: reduce) {
+  .dp-body,
+  .dp-state-thinking .dp-body::before,
+  .dp-question,
+  .dp-mouth { animation: none !important; }
+  .dp-heart,
+  .dp-say { animation-duration: 0.01ms !important; animation-delay: 0ms !important; }
+}
+
 /* ---------------- [新增] Netlify 注入徽章 / 右下角浮标：强制隐藏 ----------------
  * 背景：Netlify 在边缘服务器向页面注入 "Powered by Netlify" 徽章脚本，
  * 浮在页面右下角，会压住手机端底部导航与输入区。

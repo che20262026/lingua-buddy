@@ -4,7 +4,9 @@ import { FAT_FISH_CHARACTERS, findFatFishCharacter } from '../data/fatFishCharac
 import { FAT_FISH_ACCENT_LABELS, type FatFishAccent, type FatFishId, type FreeTalkMessage, type FreeTalkSummary } from '../freetalkTypes'
 import { sendFreeTalkTurn, summarizeFreeTalk, type FreeTalkFailure } from '../services/freetalk'
 import { FatFishAvatar } from '../components/FatFishAvatar'
+import { DesktopPet } from '../components/DesktopPet'
 import { useFatFishVoice } from '../hooks/useFatFishVoice'
+import { useDesktopPet } from '../hooks/useDesktopPet'
 import { useVoiceDictation } from '../hooks/useVoiceDictation'
 import { useAbortableRequest } from '../hooks/useAbortableRequest'
 import { ThinkingSkeleton } from '../components/ThinkingSkeleton'
@@ -54,12 +56,24 @@ export function FreeTalk() {
   const [failure, setFailure] = useState<FreeTalkFailure | null>(null)
   const [summary, setSummary] = useState<{ data: FreeTalkSummary; live: boolean } | null>(null)
   const [retrying, setRetrying] = useState(false)
+  /** [Desktop Pet] 悬浮宠物显隐：纯会话态，刷新后回到默认显示，不新增 localStorage 键 */
+  const [petVisible, setPetVisible] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
   /** 上一句用户输入，供「重试」复用 */
   const lastInputRef = useRef('')
 
   const character = findFatFishCharacter(characterId) ?? FAT_FISH_CHARACTERS[0]
   const voice = useFatFishVoice({ accent, rate: character.voice.rate, pitch: character.voice.pitch })
+
+  /**
+   * [Desktop Pet] 状态机只吃两个既有信号：
+   *   sending / summarizing → thinking；voice.speakingKey → speaking。
+   * 它不记第二份派生状态，也不跑定时器；happy 由组件内一次性态叠加。
+   */
+  const pet = useDesktopPet(character, {
+    thinking: sending || summarizing,
+    speaking: voice.speakingKey !== null,
+  })
 
   /**
    * [语音输入] 听写层：识别文字追加进输入框，不自动发送。
@@ -103,7 +117,7 @@ export function FreeTalk() {
   const send = useCallback(async (raw?: string) => {
     const value = (raw ?? text).trim()
     /* 听写中禁止发送：半句话发出去体验很差，先让用户说完 / 停止 */
-    if (!value || sending || summarizing || dictation.listening) return
+    if (!value || sending || summarizing || dictation.listening || dictation.recording) return
     lastInputRef.current = value
     setFailure(null)
     setSummary(null)
@@ -133,7 +147,7 @@ export function FreeTalk() {
 
     /* 自动朗读：角色专属动作动画由 speakingKey 触发 */
     if (voice.supported) voice.speak(aiMsg.id, aiMsg.text)
-  }, [accent, characterId, dictation.listening, isMounted, messages, nextSignal, sending, summarizing, text, voice])
+  }, [accent, characterId, dictation.listening, dictation.recording, isMounted, messages, nextSignal, sending, summarizing, text, voice])
 
   /** 结束并总结：让 AI 以当前角色的口吻交一份 { feeling, pronunciation } */
   const finish = useCallback(async () => {
@@ -271,7 +285,8 @@ export function FreeTalk() {
       </section>
 
       {/* ---------------- 消息流 ---------------- */}
-      <section className="space-y-3" aria-live="polite">
+      {/* pb-24 给悬浮宠物留出停泊位：它飘在输入台上方，不挤占输入行宽度 */}
+      <section className="space-y-3 pb-24" aria-live="polite">
         {!messages.length && (
           <div className="rounded-3xl border border-dashed border-white/90 bg-white/60 px-5 py-8 text-center">
             <p className="font-display text-sm font-bold text-ink">{character.name}正在发呆…</p>
@@ -398,16 +413,27 @@ export function FreeTalk() {
 
       {/* ---------------- 输入台 ---------------- */}
       <div className="sticky bottom-[84px] z-20 space-y-2 rounded-3xl border border-white/80 bg-white/95 p-3 shadow-float backdrop-blur">
+        {/* [Desktop Pet] 绝对定位在输入行上方右侧：不占 flex 宽度，不挡打字与发送 */}
+        {petVisible && (
+          <DesktopPet
+            character={character}
+            state={pet.state}
+            phrase={pet.phrase}
+            nonce={pet.nonce}
+            onPoke={pet.poke}
+            onHappyEnd={pet.finishHappy}
+          />
+        )}
         {/* [语音输入] 实时字幕：说完自动收进输入框，未确认片段提示核对 */}
-        {(dictation.listening || dictation.interim) && (
+        {(dictation.listening || dictation.recording || dictation.interim) && (
           <div data-testid="freetalk-dictation-interim" aria-live="polite"
             className="ff-dictation-live rounded-2xl border px-3 py-2 text-[12px] leading-relaxed">
             <span className="mr-1.5 font-bold" style={{ color: character.theme.accentInk }}>🎙 听到：</span>
-            <span className="en-text text-ink">{dictation.interim || '正在听…'}</span>
+            <span className="en-text text-ink">{dictation.interim || (dictation.recording ? '正在录音…说完点麦克风结束' : '正在听…')}</span>
             <span className="ml-1 text-[10px] text-muted">（未确认片段请核对）</span>
           </div>
         )}
-        {!dictation.listening && dictation.note && (
+        {!dictation.listening && !dictation.recording && dictation.note && (
           <p data-testid="freetalk-dictation-note" role="status"
             className="rounded-2xl bg-black/[0.04] px-3 py-1.5 text-[10px] leading-relaxed text-muted">
             {dictation.note}
@@ -418,7 +444,7 @@ export function FreeTalk() {
             value={text}
             onChange={(e) => {
               /* 用户一开口就掐断朗读，并取消在途听写（手动输入与听写互斥） */
-              if (dictation.listening) dictation.cancel()
+              if (dictation.listening || dictation.recording) dictation.cancel()
               if (voice.speakingKey) voice.stop()
               setText(e.target.value)
             }}
@@ -431,18 +457,18 @@ export function FreeTalk() {
           {/* [语音输入] 麦克风：点击开始听写，再点一次停止出字 */}
           <button type="button" onClick={dictation.toggle}
             data-testid="freetalk-mic"
-            aria-label={dictation.listening ? '停止听写并出字' : '语音输入：说话转成文字'}
-            aria-pressed={dictation.listening}
+            aria-label={dictation.recording ? '停止录音并转文字' : dictation.listening ? '停止听写并出字' : '语音输入：说话转成文字'}
+            aria-pressed={dictation.listening || dictation.recording}
             className={cn(
               'flex h-[52px] w-[44px] shrink-0 items-center justify-center rounded-2xl border-2 transition',
-              dictation.listening
+              dictation.listening || dictation.recording
                 ? 'ff-mic-live border-transparent text-white'
                 : 'border-white/80 bg-white/85 text-muted hover:text-ink',
             )}
-            style={dictation.listening ? { background: character.theme.accent } : undefined}>
+            style={dictation.listening || dictation.recording ? { background: character.theme.accent } : undefined}>
             <Icon name="mic" size={19} />
           </button>
-          <button type="button" onClick={() => void send()} disabled={sending || summarizing || dictation.listening || !text.trim()}
+          <button type="button" onClick={() => void send()} disabled={sending || summarizing || dictation.listening || dictation.recording || !text.trim()}
             data-testid="freetalk-send"
             className="btn-primary !h-[52px] !w-[52px] !rounded-2xl !px-0"
             style={{ background: character.theme.accent }}
@@ -451,20 +477,33 @@ export function FreeTalk() {
           </button>
         </div>
 
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="min-w-0 flex-1 text-[10px] leading-tight text-muted">
-            {dictation.listening
+            {dictation.recording
+              ? '正在录音… 说完点一下麦克风，自动转文字。'
+              : dictation.listening
               ? '正在听… 说完停顿一下自动出字，再点麦克风可停止。'
               : summary ? '已经收尾啦，可以点「再来一轮」重新开聊。'
                 : '点麦克风说话转文字；或随时点「结束并总结」让胖鱼写反馈。'}
           </p>
-          <button type="button" onClick={() => void finish()}
-            disabled={summarizing || sending || !messages.length}
-            data-testid="freetalk-finish"
-            className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-2xl bg-ink px-3.5 text-[12px] font-bold text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-45">
-            <Icon name="flag" size={13} />
-            {summarizing ? '总结中…' : '结束并总结'}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* [Desktop Pet] 碍事就收起来；纯会话态，不写 localStorage */}
+            <button type="button" onClick={() => setPetVisible((v) => !v)}
+              data-testid="freetalk-pet-toggle"
+              aria-pressed={petVisible}
+              aria-label={petVisible ? '收起悬浮宠物' : '唤出悬浮宠物'}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-2xl border border-white/80 bg-white/85 px-3 text-[12px] font-bold text-muted transition hover:text-ink">
+              <Icon name="fish" size={13} />
+              {petVisible ? '收起宠物' : '唤出宠物'}
+            </button>
+            <button type="button" onClick={() => void finish()}
+              disabled={summarizing || sending || !messages.length}
+              data-testid="freetalk-finish"
+              className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-2xl bg-ink px-3.5 text-[12px] font-bold text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-45">
+              <Icon name="flag" size={13} />
+              {summarizing ? '总结中…' : '结束并总结'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

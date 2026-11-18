@@ -41,6 +41,7 @@ for (const file of ['.env.local', '.env']) {
 const { invokeChat } = await import('./netlify/functions/chat.ts')
 const { invokeEvaluate } = await import('./netlify/functions/evaluate.ts')
 const { invokeFreetalk } = await import('./netlify/functions/freetalk.ts')
+const { invokeTranscribe } = await import('./netlify/functions/transcribe.ts')
 /** 人设表：假上游要用它给自由对话生成「还是那条鱼」的回复 */
 const { FAT_FISH_CHARACTERS } = await import('./src/data/fatFishCharacters.ts')
 
@@ -54,6 +55,8 @@ if (useMockUpstream) {
   process.env.LLM_API_KEY = 'local-dev-placeholder'
   process.env.LLM_API_BASE = `http://127.0.0.1:${PORT}/mock/v1`
   process.env.LLM_MODEL = 'mock-dialogue'
+  /* ASR 假上游：转写函数会把请求发到 /mock/v1/tools/asr */
+  process.env.LLM_ASR_URL = `http://127.0.0.1:${PORT}/mock/v1/tools/asr`
 }
 
 /** 假上游返回一份能被 normalizeRemote 解析的 DirectorOutput JSON */
@@ -108,7 +111,8 @@ app.disable('x-powered-by')
 /* 本地开发服务；浏览器经 Vite 代理访问时本就是同源，这里额外允许直连 / curl */
 app.use(cors())
 /* Netlify 平台层会自动解析 JSON body，Express 需显式挂载等价中间件 */
-app.use(express.json({ limit: '1mb' }))
+/* 转写请求体是 base64 音频：8MiB WAV 约 11MB base64，1mb 默认限额会被 413 拒 */
+app.use(express.json({ limit: '12mb' }))
 
 /** 健康检查：确认后端活着、以及是否已配置真实密钥（只回布尔值） */
 app.get('/api/health', (_req, res) => {
@@ -118,12 +122,18 @@ app.get('/api/health', (_req, res) => {
     port: PORT,
     configured: Boolean(String(process.env.LLM_API_KEY || '').trim()),
     mockUpstream: useMockUpstream,
-    endpoints: ['/api/health', '/.netlify/functions/chat', '/.netlify/functions/evaluate', '/.netlify/functions/freetalk', '/api/chat (legacy)'],
+    endpoints: ['/api/health', '/.netlify/functions/chat', '/.netlify/functions/evaluate', '/.netlify/functions/freetalk', '/.netlify/functions/transcribe', '/api/chat (legacy)'],
   })
 })
 
   /** OpenAI 兼容假上游：支持 stream:true 的 SSE，便于单独测流式透传 */
 if (useMockUpstream) {
+  /* 假 ASR 上游：形状与 DeepSeek /v1/tools/asr 一致（{ text, duration_ms }）。
+     --mock 模式下零真 Key、零外网也能验通「录音→转写→出字」全链路。 */
+  app.post('/mock/v1/tools/asr', (req, res) => {
+    res.json({ request_id: 'local-mock-asr-1', text: 'fancy some tea this afternoon', duration_ms: 2400 })
+  })
+
   app.post('/mock/v1/chat/completions', (req, res) => {
     /* 三条业务线共用同一个假上游端点，靠请求内容区分：
        ① 评测：user 消息里带 targetWord → 返回「考官 JSON」；
@@ -244,10 +254,34 @@ app.all(['/.netlify/functions/freetalk'], async (req, res) => {
   }
 })
 
+/**
+ * [语音转写] 第四个函数端点：本地复用 netlify/functions/transcribe.ts 的 invokeTranscribe。
+ * 独立 asr: 桶，与 chat / eval / freetalk 三方互不干扰。
+ */
+app.all(['/.netlify/functions/transcribe'], async (req, res) => {
+  try {
+    const result = await invokeTranscribe({
+      method: req.method,
+      body: req.body,
+      headers: toClientHeaders(req),
+    })
+    res.status(result.statusCode)
+    for (const [name, value] of Object.entries(result.headers)) res.setHeader(name, value)
+    res.end(result.body)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (!res.headersSent) {
+      res.status(503).json({ ok: false, fallback: true, error: `本地后端异常：${message}` })
+    } else {
+      res.end()
+    }
+  }
+})
+
 app.use((_req, res) => {
   res.status(404).json({
     ok: false, fallback: true,
-    error: '未知接口；本地仅提供 /api/health、/.netlify/functions/chat、/.netlify/functions/evaluate、/.netlify/functions/freetalk 与 legacy /api/chat',
+    error: '未知接口；本地仅提供 /api/health、/.netlify/functions/chat、/.netlify/functions/evaluate、/.netlify/functions/freetalk、/.netlify/functions/transcribe 与 legacy /api/chat',
   })
 })
 
@@ -272,6 +306,7 @@ const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/chat  （主路径）`)
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/evaluate  （AI 发音评测）`)
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/freetalk  （大肥鱼自由对话）`)
+  console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/.netlify/functions/transcribe  （语音转写 · DeepSeek ASR）`)
   console.log(`[LOCAL-SERVER]    http://localhost:${PORT}/api/chat  （legacy 兼容）`)
   console.log(`[LOCAL-SERVER] 模式: ${mode}`)
   console.log('[LOCAL-SERVER] Vite dev 的 /.netlify/functions 与 /api 已代理到 http://127.0.0.1:' + PORT)

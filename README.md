@@ -4339,8 +4339,9 @@ Netlify → **Site settings → Environment variables** 确认 `LLM_API_KEY`（�
 - 算法与响应头**复用** `netlify/lib/rateLimit.ts`（不复制第二份实现）；
 - 额度档位由本模块自己声明：`FREETALK_RATE_LIMIT_PER_MINUTE=8`（默认）、
   `FREETALK_RATE_LIMIT_PER_DAY=50`；解析规则复用公共 `parseLimit()`（0 = 关闭该维度）；
-- 桶键 = `freetalk:` + IP，与**对话桶（裸 IP）、评测桶（`eval:` + IP）三方互不干扰**
-  （冒烟里用「合并 bundle」证明：把鱼塘桶打满后，同 IP 的对话与评测仍照常放行）；
+- 桶键 = `freetalk:` + IP，与**对话桶（裸 IP）、评测桶（`eval:` + IP）、
+  转写桶（`asr:` + IP）四桶互不干扰**（冒烟里用「合并 bundle」证明：
+  把鱼塘桶和转写桶分别打满后，同 IP 的对话与评测仍照常放行）；
 - 429 契约与其它端点一致：`{ ok:false, fallback:true, rateLimited:true, error:'鱼塘太挤了，请稍后再聊' }`
   + `Retry-After` + `X-RateLimit-*`；前端照样让本地演示大肥鱼顶上并弹一张友好错误卡。
 
@@ -4370,9 +4371,10 @@ abort 竞态被 UI 禁用堵死、限流 IP 分桶。
 
 鱼塘输入台新增麦克风按钮，点一下开始听写、再点一下停止出字：
 
-- **复用不重造**：`src/hooks/useVoiceDictation.ts` 是 `lib/speech.startListening`
-  的薄封装——超时 / 静音自动收尾 / 服务中断重试 / 权限错误翻译 / TTS 互斥
-  全部沿用既有实现，一行没重写。主对话页已有等价逻辑，两个页面往后可共用同一状态机。
+- **复用不重造**：`src/hooks/useVoiceDictation.ts` 把 `lib/speech` 的
+  `startListening`（云端识别）与 `startRecording`（本地录音）叠成双通道——
+  超时 / 静音自动收尾 / 息屏补偿 / 权限错误翻译 / TTS 互斥全部沿用既有实现；
+  Android 上识别服务连不上时自动切录音，走内置 ASR 转文字（见 41.6.4）。
 - **口音跟随**：识别器 `lang` 取当前口音（en-US / en-GB / en-AU），
   切换角色时口音变化会作废上一口音的在途听写，不会用英音识别器收澳音的话。
 - **只进输入框、不自动发送**：识别文字追加进 textarea，用户核对 / 修改后自己点发送；
@@ -4411,34 +4413,165 @@ abort 竞态被 UI 禁用堵死、限流 IP 分桶。
 **停止硬修**，改为靠 180s 时长 + 4s 静音 + 息屏补偿覆盖绝大多数真实场景。
 
 > ⚠️ 已知边界：若用户在 Android Chrome 上**连续不停地说满约 60 秒**，
-> 浏览器仍会强制结束识别会话，此时会交付已识别的部分而非无限续听。
-> 要彻底突破这个平台硬顶，需引入 Stream ASR（MediaRecorder 分片上传服务端转写），
-> 那是架构级改造，本次未做。
+> 浏览器仍会强制结束识别会话。后续已在 41.6.4 用「本地录音 + 服务端转写」
+> 绕开浏览器识别服务；但那是**录完一次性上传**，不是真正的流式分片 ASR，
+> 单次录音上限仍取 60s（为 ASR 硬顶 120s 留一半余量）。
 
 #### 护栏
 
 冒烟第四十一节新增 4 条静态断言（时长阈值 / 时间补偿与动态计时 / resultIndex 修复 /
-hook 显式声明）+ 1 条运行时断言（尾段 final 不丢字），共 1500 条全绿。
-独立探针另实测息屏 300ms 补偿与两段续接文字，验证后清理。
+hook 显式声明）+ 1 条运行时断言（尾段 final 不丢字）；连同一轮内置 ASR
+回归，共 1533 条全绿。独立探针另实测息屏 300ms 补偿与两段续接文字，验证后清理。
+
+### 41.6.4 Android 真机录音不可用：内置服务端转写（systematic-debugging + best-practices）
+
+**症状**：Android Chrome 上点麦克风后「已进入监听」，却一个字都不出，最后静默结束。
+桌面 Chrome 正常，导致第一版语音输入在真机上等于没有。
+
+#### 取证与根因
+
+| 层 | 证据 | 结论 |
+|---|---|---|
+| 能力探测 | `webkitSpeechRecognition` 构造器存在 → `describeSpeechSupport().recognition === true` | 「有构造器」不等于「服务可达」，探测结果骗过了 UI |
+| 真机日志 | `onstart` 后无 `onresult`，最终 `onend`；偶发 `network` / `service-not-allowed` | Chrome 自带识别底层走 Google 服务，国内网络不可达 |
+| 代码路径 | 旧 hook 只调 `startListening()`，没有任何 `MediaRecorder` / ASR 调用 | 一旦识别服务不可用，没有任何第二条路；用户只会看到空白 |
+
+#### 修复：双通道 + 服务端持密钥
+
+```
+点麦克风
+  ├─ 有识别器 → startListening（桌面实时字幕，体验最好）
+  │    ├─ 出字 → 追加进输入框（绝不自动发送）
+  │    └─ network / service-not-allowed / 静默 onend
+  │          └─ startRecording（MediaRecorder，本地录音 ≤60s）
+  └─ 无识别器 → 直接 startRecording
+         └─ 再点一次停止 → blobToWav → POST /.netlify/functions/transcribe
+                → DeepSeek ASR → 中文提示 + 文字进输入框
+```
+
+- **前端零密钥、零配置**：`LLM_API_KEY` 只在服务端读取；不复用旧的可选
+  `asrEndpoint` 用户配置（那个方案在真机上开箱即用会失败），
+  默认值直接指向自家函数。没有新增 localStorage 键。
+- **音频归一化**：Android `MediaRecorder` 默认给 webm/opus，DeepSeek 不认；
+  `blobToWav()` 用 `AudioContext` 解码、降采样为 **16kHz 单声道 16-bit PCM WAV**，
+  120s 约 3.8MB，稳落在 8MiB 上限内；用完立刻 `ctx.close()`。
+- **服务端契约**：`POST { audio(base64), mime, durationMs? }` →
+  `{ ok:true, text, durationMs, mode:'live' }`；格式白名单（WAV / Ogg Opus）、
+  ≤8MiB、≤120s、9s 上游超时、文本截断 2000 字、只回显上游域名不泄漏地址参数。
+  失败统一 `fallback:true` 外壳，429 另带 `rateLimited:true` + `Retry-After`。
+- **第四道限流桶**：`asr:` + IP，默认 6 次/分、50 次/天；与 chat / eval / freetalk
+  三个桶彻底隔离——录音失败重试不会把聊天额度吃光。
+
+#### 调试中发现并修掉的真实缺陷
+
+第一轮 HTTP 实测里，同一 IP 连打 7 次非法音频仍全部返回 400（而不是第 7 次 429）。
+`invokeTranscribe()` 把 `method`（字符串 `'POST'`）误传给了 `checkRateLimit()` 的
+第三个参数 `now: number`，于是每轮窗口都被 `NaN` 过滤成空桶，限流**永不触发**。
+另三个端点都只传两个参数——修复方式就是删掉这个多余实参，并补两条护栏：
+
+- 静态：截取 `checkRateLimit(` 到 `if (!decision.allowed)` 的调用片段，断言不含 `method`；
+- 运行时：合并 bundle 里把 asr 桶打满，断言第 7 次 429 + 中文提示 + `X-RateLimit-Limit-Minute: 6`，
+  且紧接着的 chat / evaluate 仍为 200。
+
+> 经验：公共函数新增「可选注入参数」时，所有调用点都要按实参顺序复核；
+> 一个字符串塞进时间戳位不会报错，只会让安全开关静默失效。
+
+#### 验收
+
+- 本地 mock HTTP 实测：合法 WAV → 200 且拿到假上游文字；`video/mp4` → 400；
+  同 IP 6 次 400 后第 7 次 429（60s 重试、minute 作用域、额度头 6）；
+  同一 IP 的 chat / evaluate 仍 200；
+- `npm run smoke`：1533 条全绿（在 1517 条基线上净增 16 条：双通道 hook 2 条、
+  转写静态契约 8 条、四桶运行时隔离 2 条、假录音器端到端回归 5 条）；
+- `npm run build`：`tsc --noEmit` + `vite build` 通过，PWA precache 15 项。
+
+> 边界：这是**录完上传**，不是流式分片 ASR；单次录音上限 60s。
+> 浏览器识别成功时仍优先用识别（延迟更低），只有它失败才走这条路。
+
+### 41.6.5 升级为 Desktop Pet：悬浮电子宠物（frontend-design + best-practices）
+
+**定调**：目的——让“选完鱼就盯着一张立绘”变成“有条小生物一直待在输入台旁”；
+调性——只选 **Playful / toy-like** 一个方向，圆润、弹性、明快，不混搭极简或赛博；
+约束——沿用现有 WebP 立绘与主题变量、不新增图片资源 / localStorage 键 / XP 规则，
+底部导航仍是 8 项；记忆点——**输入框上方那只永远在呼吸、被摸会冒爱心的小鱼**。
+字体沿用项目既有 Trebuchet MS + 中文系统字体栈，不新增网络字体请求（离线 PWA 友好）。
+
+#### 布局：绝对定位，绝不抢输入区
+
+- `.dp-dock` 用 `position:absolute` 挂在输入台这个 sticky 容器上，
+  `bottom: calc(100% + 8px)` 停在输入行**上方右侧**；不进入 textarea / 麦克风 / 发送的 flex 流，
+  所以窄屏也不会把打字区挤成一条缝。
+- dock 自身 `pointer-events:none`，只有小鱼按钮 `pointer-events:auto`：
+  它即便飘在最后一条消息上方，也不会挡住滚动与文字选择。
+- 消息区补 `pb-24` 留出停泊位；输入行宽度、发送按钮位置一行未动。
+- 输入台底部新增「收起宠物 / 唤出宠物」开关（`freetalk-pet-toggle`），
+  纯会话态，刷新后回到默认显示——不新增第 32 个 localStorage 键。
+
+#### 四态状态机：React 递棒，CSS 演戏
+
+```
+happy  ← 点击（一次性叠加态，动画结束回到刚才的底层状态）
+  ↑
+thinking（sending || summarizing）> speaking（voice.speakingKey）> idle
+```
+
+- 底层状态**派生**自既有 `sending` / `summarizing` / `voice.speakingKey`，
+  不存第二份真相；`useDesktopPet` 只用 `useMemo` 组织返回值。
+- 点击小鱼才进入 `happy`：从该角色 `toneWords` + 通用短句池随机取一句
+  （如 "Hehe~"），气泡用 `role=status` + `aria-live` 播报；同时蹦一下、冒三颗爱心。
+- 归位主路径是爱心的 `onAnimationEnd`；另加 1150ms 一次性兜底
+  （`setTimeout` + 清理），专治内嵌 WebView / 测试环境不发 animationend。
+  **它不是动画驱动器**——位移、缩放、透明度全在 CSS keyframes 里，
+  代码里没有 `setInterval` / `requestAnimationFrame` / `style.animation`。
+
+#### 人设动作分岔（继续锁人设）
+
+| 角色 | idle | thinking | speaking |
+|---|---|---|---|
+| 精灵·少年 | 快速漂浮（1.6s，上下 + 左右微移） | 焦躁地左右游动 + 歪头 | 沿用高频弹跳节奏 |
+| 萝莉·青年 | 左右摇摆（2.8s） | 通用问号 + 轻晃 | 小幅度摇摆 + 轻微缩放，甜而不闹 |
+| 御姐·成年 | 慵懒地趴着（4.6s，极慢起伏） | 通用问号 + 慢晃 | 优雅慢速浮动（1.6s） |
+
+其余三条鱼沿用 `ff-motion-jitter / rock / bob` 的既有性格，不另写第七套动作。
+说话时额外叠一个纯 CSS 小嘴巴张合（`steps(2,end)`），身体按拍子晃；
+思考时头顶问号泡泡 + 旋转虚线圈；全部只动 `transform` / `opacity`。
+
+#### 性能与降级
+
+- `@media (prefers-reduced-motion: reduce)` 下循环动作全关；
+  爱心 / 短句保留 0.01ms 极短动画，让 `animationend` 仍能归还状态。
+- 小鱼是真正的 `<button>`（64–78px 触摸目标、`:focus-visible` 2px 描边），
+  爱心只是装饰符号，不承载语义。
+- `react_engine.py audit` 对组件与 hook 各评 **94/100 · A**；
+  唯一 WARN 是 Next.js 专属的 `error.tsx` 检查，本项目已有全局 ErrorBoundary，属误报。
+- `npm run smoke`：1533 条全绿（新增 16 条：四态契约、无 JS 动画驱动、
+  非遮挡布局、角色分岔、随机短句、开关、兜底归位、运行时 happy / thinking / 显隐）；
+  `npm run build` 通过，PWA precache 15 项，立绘资源零新增。
 
 ### 41.7 落盘清单
 
 | 文件 | 说明 |
 |---|---|
 | `netlify/functions/freetalk.ts`（新） | 自由对话函数：人设 Prompt + 总结 JSON + 8 次/分钟限流 |
-| `src/freetalkTypes.ts`（新） | 类型契约：角色 id / 口音 / 动作 / 主题色 / 消息 |
+| `src/freetalkTypes.ts`（新） | 类型契约：角色 id / 口音 / 动作 / 主题色 / 消息 / `DesktopPetState` 四态 |
 | `src/data/fatFishCharacters.ts`（新） | 6 条鱼的**唯一人设真源**（前后端共用） |
 | `src/data/fatFishFallbacks.ts`（新） | 离线 / 上游失败时的兜底文案（保持角色口吻） |
-| `src/components/FatFishAvatar.tsx`（新） | 6 个纯代码 SVG 形象 |
+| `src/components/FatFishAvatar.tsx`（新） | 6 条鱼本地立体立绘 WebP（对外 props / `data-testid` / 动画类名不变，加载失败降级 emoji） |
 | `src/hooks/useFatFishVoice.ts`（新） | 口音严格匹配的 TTS 层 |
 | `src/services/freetalk.ts`（新） | 前端服务：失败分类 + 本地演示降级 |
-| `src/pages/FreeTalk.tsx`（新） | 鱼塘页：选鱼 / 选口音 / 聊 / 总结 |
-| `src/index.css`（改） | 主题变量 + 6 套朗读动作 keyframes + reduced-motion 降级 |
+| `src/pages/FreeTalk.tsx`（新） | 鱼塘页：选鱼 / 选口音 / 聊 / 总结；输入台挂悬浮宠物与显隐开关 |
+| `src/components/DesktopPet.tsx`（新） | 悬浮电子宠物：absolute 停泊 + 四态外壳 + 问号 / 爱心 / 短句 + 焦点可达 |
+| `src/hooks/useDesktopPet.ts`（新） | 四态状态机：底层状态派生、happy 一次性叠加、animationend 归位 + 兜底清理 |
+| `src/index.css`（改） | 主题变量 + 6 套朗读动作 + 电子宠物 4 态 / 人设分岔 keyframes + reduced-motion 降级 |
 | `src/App.tsx` / `src/types.ts` / `src/pages/Home.tsx`（改） | 新增 `freeTalk` 视图与首页入口卡 |
 | `src/growthTypes.ts`（改） | `XP_RULES.freetalk_summary: 6`、`XpSource` 新增 `freetalk` |
 | `netlify/lib/rateLimit.ts`（改） | 导出 `parseLimit()` 与默认档位（**算法一行未改**） |
-| `server.ts`（改） | 本地联调台挂 `/.netlify/functions/freetalk`；假上游按 `[TASK:*]` 标记分流 |
-| `src/hooks/useVoiceDictation.ts`（新） | 语音输入状态机（薄封装 startListening）：口音跟随 / 实时字幕 / 不自动发送 / 降级 |
+| `server.ts`（改） | 本地联调台挂 `freetalk` 与 `transcribe`；假上游按 `[TASK:*]` 标记分流；JSON 限额 12mb 容纳 base64；--mock 自带假 ASR |
+| `src/hooks/useVoiceDictation.ts`（新） | 语音输入双通道状态机：口音跟随 / 实时字幕 / 识别失败切录音 / ASR 转文字 / 只进输入框不自动发送 |
+| `netlify/functions/transcribe.ts`（新） | 内置 ASR 端点：单一真源 `invokeTranscribe` + `asr:` 独立分桶 + 格式/大小/时长白名单 + 失败 fallback |
+| `src/services/transcribeAudio.ts`（新） | 前端转写服务：WAV → base64 → 唯一端点，429/4xx/5xx/空结果分类为可降级中文提示 |
+| `src/lib/speech.ts`（改） | 长录音 180s/4s + 息屏补偿 + `resultIndex` 修复；新增 `blobToWav()`（16kHz 单声道 PCM） |
+| `.env.example`（改） | v2.8：补 `LLM_ASR_URL` 与 `ASR_RATE_LIMIT_*`，说明四个函数桶互相隔离 |
 
 ### 41.8 本地联调
 
@@ -4456,13 +4589,30 @@ for i in $(seq 1 9); do
     -H 'Content-Type: application/json' -H 'x-nf-client-connection-ip: 203.0.113.77' \
     -d '{"character":"elf","accent":"en-US","mode":"chat","messages":[{"role":"user","content":"hey"}]}'
 done
+
+# 转写：合法 WAV → mock 上游固定回一句（真机上是前端 blobToWav 生成的 base64）
+curl -s -X POST http://127.0.0.1:3001/.netlify/functions/transcribe \
+  -H 'Content-Type: application/json' -H 'x-nf-client-connection-ip: 203.0.113.20' \
+  -d '{"audio":"<base64-wav>","mime":"audio/wav","durationMs":1200}'
+
+# 触发转写桶限流（同 IP 连打 7 次，第 7 次 429；额度与鱼塘桶彼此独立）
+for i in $(seq 1 7); do
+  curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+    http://127.0.0.1:3001/.netlify/functions/transcribe \
+    -H 'Content-Type: application/json' -H 'x-nf-client-connection-ip: 203.0.113.88' \
+    -d '{}'
+done
 ```
 
 ### 41.9 上线前
 
-Netlify → **Site settings → Environment variables** 确认 `LLM_API_KEY`（必填）。
-`LLM_API_BASE` / `LLM_MODEL` 选填（默认 DeepSeek）；限流额度用
-`FREETALK_RATE_LIMIT_PER_MINUTE`（默认 8）/ `FREETALK_RATE_LIMIT_PER_DAY`（默认 50）覆盖。
+Netlify → **Site settings → Environment variables** 确认 `LLM_API_KEY`（必填，四个函数共用）。
+`LLM_API_BASE` / `LLM_MODEL` 选填（默认 DeepSeek）；`LLM_ASR_URL` 选填，留空即走
+`${LLM_API_BASE}/tools/asr`。限流额度分别用
+`RATE_LIMIT_PER_MINUTE/_DAY`（对话、评测，默认 5/50）、
+`FREETALK_RATE_LIMIT_PER_MINUTE/_DAY`（鱼塘，默认 8/50）、
+`ASR_RATE_LIMIT_PER_MINUTE/_DAY`（转写，默认 6/50）覆盖。
+完整示例见 `.env.example` v2.8。
 
 > ⚠️ 纯内存 IP 限流是 Serverless **实例级近似**：挡得住随手刷屏与失控重试，
 > 挡不住有组织的分布式攻击——需要更强时把 `netlify/lib/rateLimit.ts` 换成 Redis / Upstash。

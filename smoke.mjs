@@ -4351,10 +4351,10 @@ try {
     'src/services/llmStream.ts': '4ee596d5f154d7c94d20753bc6b95902a3efe9220e0ea004bcc290b015d00006',
     'vercel.json': '1dd30aa45b1253f3d3947f4ff094a3b32f35dd5947a442f6ca10fc75a8be21a9',
     'vite.config.ts': '42d24292ea41674342e073a165e092e60599225a57c450b8a2e0a846986cb25b',
-    '.env.example': 'd215a417b862049e65276b2950a3b9065efc2fa5c76a3317ff5c6139cad3d386',
+    '.env.example': '297fa06290e2b2b83070446bae1d6047fe73a0397f8d334d2d578ef41268720e',
   }
   assert(Object.entries(FROZEN).every(([rel, hash]) => frozenHash(rel) === hash),
-  '5 个网络层/后端/部署文件逐字节冻结；aiStatus.ts 与 vite.config.ts 为 v2.0 基线，dialogueDirector.ts 为 v2.4 基线，.env.example 为 v2.7 基线（补写 freetalk 端点与鱼塘独立额度说明）')
+  '5 个网络层/后端/部署文件逐字节冻结；aiStatus.ts 与 vite.config.ts 为 v2.0 基线，dialogueDirector.ts 为 v2.4 基线，.env.example 为 v2.8 基线（补写内置 ASR 转写端点与 asr 独立额度说明）')
 
   assert(uiSkeleton.includes('role="status"') && uiSkeleton.includes('aria-busy="true"')
     && uiSkeleton.includes('aria-live="polite"') && uiSkeleton.includes('skeleton-dot')
@@ -4961,8 +4961,8 @@ window.__mountEB = (el, boom, onError) => {
   assert(nfServer.includes('function toClientHeaders(req: express.Request)')
     && nfServer.includes('headers[name] = Array.isArray(value) ? value[0] : value')
     && nfServer.includes('headers: toClientHeaders(req)')
-    && (nfServer.match(/headers: toClientHeaders\(req\)/g) || []).length === 3,
-  '本地 Express 把请求头归一化后透传给 invokeChat / invokeEvaluate / invokeFreetalk，本地限流与线上同一套判定')
+    && (nfServer.match(/headers: toClientHeaders\(req\)/g) || []).length === 4,
+  '本地 Express 把请求头归一化后透传给 invokeChat / invokeEvaluate / invokeFreetalk / invokeTranscribe，本地限流与线上同一套判定')
   const rlDirector = fs.readFileSync(path.join(root, 'src/services/dialogueDirector.ts'), 'utf8')
   const rlDialogue = fs.readFileSync(path.join(root, 'src/pages/Dialogue.tsx'), 'utf8')
   const rlChannel = fs.readFileSync(path.join(root, 'src/components/aiErrorChannel.ts'), 'utf8')
@@ -5851,6 +5851,8 @@ window.__mountLab = (el, entry) => {
     const ffVoiceSrc = fs.readFileSync(path.join(root, 'src/hooks/useFatFishVoice.ts'), 'utf8')
     const ffDictateSrc = fs.readFileSync(path.join(root, 'src/hooks/useVoiceDictation.ts'), 'utf8')
     const ffCssSrc = fs.readFileSync(path.join(root, 'src/index.css'), 'utf8')
+    const ffPetSrc = fs.readFileSync(path.join(root, 'src/components/DesktopPet.tsx'), 'utf8')
+    const ffPetHookSrc = fs.readFileSync(path.join(root, 'src/hooks/useDesktopPet.ts'), 'utf8')
     const ffGrowthSrc = fs.readFileSync(path.join(root, 'src/growthTypes.ts'), 'utf8')
     const ffAppSrc = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8')
     const ffTypesViewSrc = fs.readFileSync(path.join(root, 'src/types.ts'), 'utf8')
@@ -5985,22 +5987,108 @@ window.__mountLab = (el, entry) => {
     assert(ffVoiceSrc.includes('available: Boolean(exactVoice)') && ffPageSrc.includes('freetalk-accent-missing'),
       '设备没有该口音音色时如实告知，而不是拿别的音色糊弄')
 
-    /* [语音输入] hook 是 lib/speech.startListening 的薄封装，不重复造识别逻辑 */
+    /* [语音输入] hook 双通道：浏览器识别优先，Google 连不上时切本地录音 + 内置 ASR */
     assert(ffDictateSrc.includes("from '../lib/speech'") && ffDictateSrc.includes('startListening')
-      && ffDictateSrc.includes('describeSpeechSupport') && !ffDictateSrc.includes('new (window as'),
-      '语音输入 hook 复用 lib/speech 的 startListening 与能力探测，不另造一套识别器')
+      && ffDictateSrc.includes('startRecording') && ffDictateSrc.includes('describeSpeechSupport'),
+      '语音输入 hook 复用 lib/speech 的识别与录音两层能力，不另造一套采集逻辑')
+    assert(ffDictateSrc.includes('startFallbackRecording') && ffDictateSrc.includes("'silent-end'")
+      && ffDictateSrc.includes("'network'") && ffDictateSrc.includes("'service-not-allowed'"),
+      '识别报 network/service-not-allowed 或静默 onend 无结果时，自动切本地录音兜底（Android/国内关键）')
+    assert(ffDictateSrc.includes('transcribeAudioBlob') && ffDictateSrc.includes('recordingRef.current?.stop()'),
+      '录音结束后经内置 ASR 转文字；再点一次麦克风即可停止并出字')
     assert(ffDictateSrc.includes('epochRef.current') && ffDictateSrc.includes('optionsRef.current')
-      && ffDictateSrc.includes('handleRef.current?.cancel()'),
-      '语音输入有 epoch 防迟到回调 + props 快照刷新 + 卸载/切口音时释放麦克风')
+      && ffDictateSrc.includes('listeningRef.current?.cancel()') && ffDictateSrc.includes('recordingRef.current?.cancel()'),
+      'epoch 防迟到回调 + props 快照刷新；卸载/切口音/取消会释放识别与录音两路麦克风')
     assert(ffDictateSrc.includes('onTranscript') && !ffDictateSrc.includes('send(')
       && ffPageSrc.includes('onTranscript: (spoken) => setText'),
-      '识别文字只交给调用方追加进输入框，hook 自身绝不自动发送')
+      '识别/转写文字只交给调用方追加进输入框，hook 自身绝不自动发送')
     assert(ffPageSrc.includes('data-testid="freetalk-mic"') && ffPageSrc.includes('dictation.toggle')
-      && ffPageSrc.includes('dictation.listening') && ffPageSrc.includes('sending || summarizing || dictation.listening'),
-      '输入台有麦克风按钮；听写中禁用发送，杜绝半句话发出去')
+      && ffPageSrc.includes('dictation.listening') && ffPageSrc.includes('dictation.recording')
+      && ffPageSrc.includes('sending || summarizing || dictation.listening || dictation.recording'),
+      '输入台有麦克风按钮；听写/录音中禁用发送，杜绝半句话发出去')
     assert(ffPageSrc.includes('freetalk-dictation-interim') && ffPageSrc.includes('aria-live="polite"')
-      && ffPageSrc.includes('dictation.interim') && ffPageSrc.includes('dictation.cancel()'),
-      '实时字幕用 aria-live 播报、标注未确认需核对；手动输入与切角色都会取消听写')
+      && ffPageSrc.includes('dictation.interim') && ffPageSrc.includes('正在录音')
+      && ffPageSrc.includes('dictation.cancel()'),
+      '实时字幕与录音态用 aria-live 播报、标注未确认需核对；手动输入与切角色都会取消采集')
+
+    /* ---------- 内置录音转写（Android 录音降级的服务端通道） ---------- */
+    const trFnSrc = fs.readFileSync(path.join(root, 'netlify/functions/transcribe.ts'), 'utf8')
+    const trSvcSrc = fs.readFileSync(path.join(root, 'src/services/transcribeAudio.ts'), 'utf8')
+    const trSpeechSrc = fs.readFileSync(path.join(root, 'src/lib/speech.ts'), 'utf8')
+    assert(trFnSrc.includes('export async function invokeTranscribe') && trFnSrc.includes('export const handler')
+      && trFnSrc.includes('export const ASR_PER_MINUTE = 6') && trFnSrc.includes('export const ASR_PER_DAY = 50')
+      && trFnSrc.includes('parseLimit(env.ASR_RATE_LIMIT_PER_MINUTE, ASR_PER_MINUTE)'),
+      '转写函数复用单一真源 invokeTranscribe：Netlify handler 与本地 Express 同一份代码，默认 6 次/分、50 次/天')
+    const asrLimitCall = trFnSrc.split('const decision = checkRateLimit(')[1]?.split('if (!decision.allowed)')[0] || ''
+    assert(asrLimitCall.includes('`asr:${clientIp(req.headers)}`')
+      && asrLimitCall.includes('readAsrRateLimitConfig()')
+      && !asrLimitCall.includes('method'),
+      '限流只传桶键与配置两个参数：不把 HTTP 方法误当时间戳（否则滚动窗口每轮被清空，限流永不触发）')
+    assert(trFnSrc.includes('ASR_RATE_LIMIT_MESSAGE') && trFnSrc.includes('rateLimited: true')
+      && trFnSrc.includes('fallback: true') && trFnSrc.includes('rateLimitHeaders(decision)')
+      && trFnSrc.includes("'转写太频繁了，稍等一下再试'"),
+      '转写 429 契约与另外三个端点一致：中文提示 + fallback 外壳 + Retry-After 头')
+    assert(trFnSrc.includes('MAX_AUDIO_BYTES = 8 * 1024 * 1024') && trFnSrc.includes('MAX_AUDIO_MS = 120_000')
+      && trFnSrc.includes("'audio/wav'") && trFnSrc.includes("'audio/ogg;codecs=opus'")
+      && trFnSrc.includes('text.slice(0, 2000)') && trFnSrc.includes('safeProvider(url)'),
+      '转写入口做白名单校验（格式/大小/时长）、截断不可信文本，且只回显上游域名不泄漏密钥')
+    assert(trSvcSrc.includes("const ENDPOINT = '/.netlify/functions/transcribe'")
+      && trSvcSrc.includes('export async function transcribeAudioBlob') && trSvcSrc.includes('blobToWav(blob)')
+      && trSvcSrc.includes("reason: 'rate-limited'") && trSvcSrc.includes("reason: 'invalid'")
+      && trSvcSrc.includes("reason: 'unavailable'") && trSvcSrc.includes("reason: 'empty'"),
+      '前端转写服务指向唯一端点，先转 WAV 再提交，并把 429/4xx/5xx/空结果分类为可降级的中文提示')
+    assert(trSpeechSrc.includes('export async function blobToWav(blob: Blob, targetRate = 16000)')
+      && trSpeechSrc.includes("writeStr(0, 'RIFF')") && trSpeechSrc.includes('view.setUint16(34, 16, true)')
+      && trSpeechSrc.includes('ctx.close()'),
+      'Android webm 被解码、降采样为 16kHz 单声道 16-bit PCM WAV，且用完立即关 AudioContext')
+    assert(nfServer.includes("const { invokeTranscribe } = await import('./netlify/functions/transcribe.ts')")
+      && nfServer.includes("app.all(['/.netlify/functions/transcribe']")
+      && nfServer.includes("limit: '12mb'") && nfServer.includes('LLM_ASR_URL'),
+      '本地联调台挂同一条转写链路：放大 JSON 限额容纳 base64，--mock 模式自带假 ASR 上游')
+    assert(ffDictateSrc.includes('timeoutMs: 180000') && ffDictateSrc.includes('silenceMs: 4000')
+      && trFnSrc.includes('UPSTREAM_TIMEOUT_MS = 9_000'),
+      '端到端时长边界自洽：浏览器识别 180s / 静音 4s / 录音 60s / 服务端转写 9s 且上限 120s')
+
+    /* ---------- Desktop Pet：悬浮布局 + 四态状态机 + 纯 CSS 动画 ---------- */
+    assert(ffTypesSrc.includes("export type DesktopPetState = 'idle' | 'thinking' | 'speaking' | 'happy'")
+      && ffPetHookSrc.includes("if (input.thinking) return 'thinking'")
+      && ffPetHookSrc.includes("if (input.speaking) return 'speaking'")
+      && ffPetHookSrc.includes("state: happy ? 'happy' : base"),
+      '桌面宠物四态契约落盘：happy 是一次性叠加态，底层优先级 thinking > speaking > idle')
+    const ffPetCode = stripComments(ffPetSrc + ffPetHookSrc)
+    assert(!ffPetCode.includes('setInterval') && !ffPetCode.includes('requestAnimationFrame')
+      && !ffPetCode.includes('style.animation') && !ffPetCode.includes('style.transform'),
+    '性能红线：没有 setInterval / requestAnimationFrame、不逐帧改样式；唯一 setTimeout 只做 happy 归位兜底')
+    assert(ffCssSrc.includes('.dp-dock {') && ffCssSrc.includes('position: absolute')
+      && ffCssSrc.includes('bottom: calc(100% + 8px)') && ffCssSrc.includes('pointer-events: none')
+      && ffCssSrc.includes('.dp-pet {') && ffCssSrc.includes('pointer-events: auto')
+      && ffPageSrc.includes('space-y-3 pb-24'),
+    '宠物 absolute 停在输入台上方右侧；dock 透传点击、小鱼才接收，消息区留白不挡打字与发送')
+    assert(['@keyframes dp-breathe', '@keyframes dp-think', '@keyframes dp-talk',
+      '@keyframes dp-happy-hop', '@keyframes dp-heart-float'].every((k) => ffCssSrc.includes(k))
+      && ffCssSrc.includes('.dp-state-idle .dp-body') && ffCssSrc.includes('.dp-state-speaking .dp-mouth'),
+    '四态动作与说话嘴型全部是 CSS @keyframes（呼吸 / 思考 / 说话 / 蹦跳 / 爱心 / 嘴巴张合）')
+    assert(ffCssSrc.includes('.dp-state-idle.ff-motion-bounce')
+      && ffCssSrc.includes('.dp-state-thinking.ff-motion-bounce')
+      && ffCssSrc.includes('.dp-state-idle.ff-motion-sway')
+      && ffCssSrc.includes('.dp-state-speaking.ff-motion-sway')
+      && ffCssSrc.includes('.dp-state-idle.ff-motion-float')
+      && ffCssSrc.includes('.dp-state-speaking.ff-motion-float'),
+    '人设分岔：精灵快漂+焦躁游动 / 萝莉左右摇+小幅度说话 / 御姐慵懒趴+优雅慢说')
+    assert(ffPetHookSrc.includes('character.toneWords') && ffPetHookSrc.includes('EXTRA_PHRASES')
+      && ffPetSrc.includes('dp-heart-1') && ffPetSrc.includes('onAnimationEnd')
+      && ffPetSrc.includes("e.animationName !== 'dp-heart-float'"),
+    '被摸时随机吐一句角色语气词并冒三颗爱心；只认第一颗的 animationend，不重复归位')
+    assert(ffPageSrc.includes('data-testid="freetalk-pet-toggle"') && ffPageSrc.includes('setPetVisible')
+      && ffPageSrc.includes('petVisible &&') && ffPageSrc.includes('useDesktopPet')
+      && !stripComments(ffPageSrc).includes('localStorage'),
+    '显示/隐藏开关是纯会话态：不新增 localStorage 键、不碰 XP 与五步闭环')
+    assert(ffPetHookSrc.includes('HAPPY_FALLBACK_MS') && ffPetHookSrc.includes('window.clearTimeout(timer)'),
+      'happy 有一次性归位兜底并在卸载时清理；浏览器缺 animationend 也不会卡住，且不会泄漏定时器')
+    assert(ffCssSrc.includes('@media (prefers-reduced-motion: reduce)')
+      && ffCssSrc.includes('.dp-heart,') && ffCssSrc.includes('animation-duration: 0.01ms'),
+    '减少动态效果时循环动作全关；爱心保留极短动画以便 onAnimationEnd 仍能归还状态')
+
     assert(ffCssSrc.includes('ff-mic-pulse') && ffCssSrc.includes('.ff-mic-live { animation: none; }')
       && ffCssSrc.includes('prefers-reduced-motion: reduce'),
       '麦克风脉冲只动 transform/opacity，且在减少动态效果设置下关闭')
@@ -6158,25 +6246,32 @@ window.__mountLab = (el, entry) => {
       }
     }
 
-    /* ---------- 运行时：三个端点的限流桶互不干扰（合并 bundle 证明前缀才是功臣） ---------- */
+    /* ---------- 运行时：四个端点的限流桶互不干扰（合并 bundle 证明前缀才是功臣） ---------- */
     {
-      const threeEntry = `
+      const fourEntry = `
 export { invokeChat } from './netlify/functions/chat.ts'
 export { invokeEvaluate } from './netlify/functions/evaluate.ts'
 export { invokeFreetalk } from './netlify/functions/freetalk.ts'
+export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe.ts'
 `
-      const threeOut = path.join(os.tmpdir(), `lingua-smoke-three-${process.pid}.mjs`)
+      const fourOut = path.join(os.tmpdir(), `lingua-smoke-four-${process.pid}.mjs`)
       await build({
-        stdin: { contents: threeEntry, resolveDir: root, loader: 'ts' },
-        bundle: true, format: 'esm', platform: 'node', outfile: threeOut, logLevel: 'silent',
+        stdin: { contents: fourEntry, resolveDir: root, loader: 'ts' },
+        bundle: true, format: 'esm', platform: 'node', outfile: fourOut, logLevel: 'silent',
       })
-      const THREE = await import(pathToFileURL(threeOut).href + `?t=${Date.now()}`)
-      const threeSaved = {
+      const FOUR = await import(pathToFileURL(fourOut).href + `?t=${Date.now()}`)
+      const fourSaved = {
         LLM_API_KEY: process.env.LLM_API_KEY,
         LLM_API_BASE: process.env.LLM_API_BASE,
         LLM_MODEL: process.env.LLM_MODEL,
+        RATE_LIMIT_PER_MINUTE: process.env.RATE_LIMIT_PER_MINUTE,
+        RATE_LIMIT_PER_DAY: process.env.RATE_LIMIT_PER_DAY,
+        FREETALK_RATE_LIMIT_PER_MINUTE: process.env.FREETALK_RATE_LIMIT_PER_MINUTE,
+        FREETALK_RATE_LIMIT_PER_DAY: process.env.FREETALK_RATE_LIMIT_PER_DAY,
+        ASR_RATE_LIMIT_PER_MINUTE: process.env.ASR_RATE_LIMIT_PER_MINUTE,
+        ASR_RATE_LIMIT_PER_DAY: process.env.ASR_RATE_LIMIT_PER_DAY,
       }
-      const threeRealFetch = globalThis.fetch
+      const fourRealFetch = globalThis.fetch
       globalThis.fetch = async (url, init) => {
         if (String(url).includes('/chat/completions')) {
           const body = String((init && init.body) || '')
@@ -6193,33 +6288,66 @@ export { invokeFreetalk } from './netlify/functions/freetalk.ts'
       process.env.LLM_API_KEY = 'test-key'
       process.env.LLM_API_BASE = 'https://api.deepseek.com/v1'
       process.env.LLM_MODEL = 'deepseek-chat'
+      /* 显式钉死额度，避免调用方 shell 里遗留的 0 / 自定义值让分桶断言漂移 */
+      process.env.RATE_LIMIT_PER_MINUTE = '5'
+      process.env.RATE_LIMIT_PER_DAY = '50'
+      process.env.FREETALK_RATE_LIMIT_PER_MINUTE = '8'
+      process.env.FREETALK_RATE_LIMIT_PER_DAY = '50'
+      process.env.ASR_RATE_LIMIT_PER_MINUTE = '6'
+      process.env.ASR_RATE_LIMIT_PER_DAY = '50'
 
       try {
         const ip = { 'x-nf-client-connection-ip': '198.51.100.50' }
         let last = null
         for (let i = 0; i < 8; i++) {
-          last = await THREE.invokeFreetalk({
+          last = await FOUR.invokeFreetalk({
             method: 'POST', headers: ip,
             body: { character: 'elf', messages: [{ role: 'user', content: 'hey' }] },
           })
         }
-        const ninth = await THREE.invokeFreetalk({
+        const ninth = await FOUR.invokeFreetalk({
           method: 'POST', headers: ip,
           body: { character: 'elf', messages: [{ role: 'user', content: 'hey again' }] },
         })
-        const chatAfter = await THREE.invokeChat({
+        const chatAfter = await FOUR.invokeChat({
           method: 'POST', headers: ip,
           body: { messages: [{ role: 'user', content: 'hi' }], level: 'B1' },
         })
-        const evalAfter = await THREE.invokeEvaluate({
+        const evalAfter = await FOUR.invokeEvaluate({
           method: 'POST', headers: ip,
           body: { targetWord: 'think', userSpokenText: 'think' },
         })
-        assert(ninth.statusCode === 429 && chatAfter.statusCode === 200 && evalAfter.statusCode === 200,
-          '运行时：同一 IP 连续聊天把「鱼塘桶」打满后，对话桶与评测桶仍照常放行（三方桶互不干扰）')
+        /* 转写桶 6 次/分：空 body 会在限流之后才被校验成 400，
+           因此纯离线也能证明「先分桶、后校验」的顺序与窗口确实生效。 */
+        let asrLast = null
+        for (let i = 0; i < 6; i++) {
+          asrLast = await FOUR.invokeTranscribe({ method: 'POST', headers: ip, body: {} })
+        }
+        const asrSeventh = await FOUR.invokeTranscribe({ method: 'POST', headers: ip, body: {} })
+        const asrSeventhBody = JSON.parse(asrSeventh.body)
+        const chatAfterAsr = await FOUR.invokeChat({
+          method: 'POST', headers: ip,
+          body: { messages: [{ role: 'user', content: 'still here' }], level: 'B1' },
+        })
+        const evalAfterAsr = await FOUR.invokeEvaluate({
+          method: 'POST', headers: ip,
+          body: { targetWord: 'think', userSpokenText: 'think' },
+        })
+        assert(ninth.statusCode === 429 && asrSeventh.statusCode === 429
+          && chatAfter.statusCode === 200 && evalAfter.statusCode === 200
+          && chatAfterAsr.statusCode === 200 && evalAfterAsr.statusCode === 200,
+        '运行时：鱼塘桶（8 次）与转写桶（6 次）分别打满后，对话桶与评测桶仍照常放行（四桶互不干扰）')
+        assert(asrLast.statusCode === 400 && asrSeventhBody.rateLimited === true
+          && asrSeventhBody.error === '转写太频繁了，稍等一下再试'
+          && asrSeventh.headers['Retry-After'] && asrSeventh.headers['X-RateLimit-Scope'] === 'minute'
+          && asrSeventh.headers['X-RateLimit-Limit-Minute'] === '6',
+        '运行时：转写第 7 次触发 429 + 中文提示 + Retry-After + 6 次/分钟额度头（防 method 误传成时间戳）')
+        assert(FOUR.pickTranscript({ text: '  fancy some tea  ', duration_ms: 2400 }).text === 'fancy some tea'
+          && FOUR.pickTranscript({ transcript: 'hello' }).text === 'hello',
+        '运行时：上游转写结果兼容 text / transcript 两种形状并去除首尾空白')
       } finally {
-        globalThis.fetch = threeRealFetch
-        for (const [k, v] of Object.entries(threeSaved)) {
+        globalThis.fetch = fourRealFetch
+        for (const [k, v] of Object.entries(fourSaved)) {
           if (v === undefined) delete process.env[k]
           else process.env[k] = v
         }
@@ -6246,6 +6374,11 @@ export { invokeFreetalk } from './netlify/functions/freetalk.ts'
         '运行时：大肥鱼形象是本地立绘 WebP（无外链 CDN）')
       assert(ffAvatar.closest('.ff-avatar')?.classList.contains('ff-motion-bounce'),
         '运行时：立绘容器保留该角色的朗读动作类名')
+      const petBtn = document.querySelector('[data-testid="desktop-pet"]')
+      assert(!!petBtn && petBtn.getAttribute('data-state') === 'idle'
+        && petBtn.getAttribute('data-motion') === 'bounce'
+        && !!document.querySelector('[data-testid="desktop-pet-dock"]'),
+      '运行时：输入台旁出现电子宠物，初始为 idle 且继承精灵的 bounce 人设动作')
       /* 切到御姐：口音应自动跟到该角色的默认英音 */
       const oneeBtn = document.querySelector('[data-testid="freetalk-character-onee"]')
       assert(!!oneeBtn, '御姐大肥鱼可切换')
@@ -6298,6 +6431,117 @@ export { invokeFreetalk } from './netlify/functions/freetalk.ts'
         '识别器口音跟随当前口音档位（御姐 en-GB，不是默认 en-US）')
       delete globalThis.window.SpeechRecognition
 
+      /* [Android 降级] 识别器静默 onend 无结果 → 本地录音 → WAV → 内置 ASR → 文字进输入框 */
+      {
+        const savedFetchFb = globalThis.fetch
+        const savedFileReaderFb = globalThis.FileReader
+        const savedCreateObjectURL = globalThis.URL.createObjectURL
+        const savedAudioContext = globalThis.window.AudioContext
+        const savedMediaRecorder = globalThis.window.MediaRecorder
+        const savedMediaDevices = Object.getOwnPropertyDescriptor(globalThis.window.navigator, 'mediaDevices')
+
+        class SilentRecognition {
+          constructor() {
+            this.lang = ''; this.continuous = false; this.interimResults = false; this.maxAlternatives = 1
+          }
+          start() { setTimeout(() => this.onend?.(), 15) } // 构造器在、服务不可达的典型表现
+          stop() {}
+          abort() {}
+        }
+        class FakeAudioContext {
+          static closed = false
+          async decodeAudioData() {
+            return {
+              length: 1600, sampleRate: 48000, numberOfChannels: 1,
+              getChannelData: () => new Float32Array(1600).fill(0.2),
+            }
+          }
+          async close() { FakeAudioContext.closed = true }
+        }
+        class FakeMediaRecorder {
+          static isTypeSupported() { return true }
+          static instances = []
+          constructor() {
+            this.mimeType = 'audio/webm'; this.state = 'inactive'
+            FakeMediaRecorder.instances.push(this)
+          }
+          start() {
+            this.state = 'recording'
+            setTimeout(() => this.ondataavailable?.({ data: new Blob(['fake-audio'], { type: 'audio/webm' }) }), 10)
+          }
+          stop() { this.state = 'inactive'; this.onstop?.() }
+        }
+        class FakeFileReader {
+          readAsDataURL(blob) {
+            blob.arrayBuffer().then((buf) => {
+              this.result = 'data:audio/wav;base64,' + Buffer.from(buf).toString('base64')
+              this.onload?.()
+            }).catch((err) => this.onerror?.(err))
+          }
+        }
+
+        globalThis.FileReader = FakeFileReader
+        globalThis.URL.createObjectURL = () => 'blob:lingua-fake-recording'
+        globalThis.window.AudioContext = FakeAudioContext
+        globalThis.window.MediaRecorder = FakeMediaRecorder
+        Object.defineProperty(globalThis.window.navigator, 'mediaDevices', {
+          configurable: true,
+          value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) },
+        })
+        let asrCalls = 0
+        globalThis.fetch = async (url, init) => {
+          if (String(url).includes('/.netlify/functions/transcribe')) {
+            asrCalls += 1
+            const payload = JSON.parse(String((init && init.body) || '{}'))
+            if (payload.mime !== 'audio/wav' || typeof payload.audio !== 'string') {
+              throw new Error('fallback must submit WAV base64')
+            }
+            return new Response(JSON.stringify({
+              ok: true, text: 'fancy some tea from asr', durationMs: 1200,
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+          }
+          return savedFetchFb(url, init)
+        }
+
+        try {
+          globalThis.window.SpeechRecognition = SilentRecognition
+          const bubblesBeforeFallback = document.querySelectorAll('[data-testid="freetalk-page"] .animate-in').length
+          const textBeforeFallback = document.querySelector('[data-testid="freetalk-input"]').value
+          fire(document.querySelector('[data-testid="freetalk-mic"]'))
+          await tick(100)
+          assert(bodyText().includes('正在录音')
+            && document.querySelector('[data-testid="freetalk-mic"]')?.getAttribute('aria-label') === '停止录音并转文字',
+          '运行时：识别器静默 onend 后自动切本地录音，麦克风同一按钮变成「停止并转文字」')
+          assert(FakeMediaRecorder.instances.length === 1 && FakeMediaRecorder.instances[0].state === 'recording',
+          '运行时：降级真的启动了 MediaRecorder，而不是只改了一句提示文案')
+
+          fire(document.querySelector('[data-testid="freetalk-mic"]'))
+          await tick(300)
+          const afterFallback = document.querySelector('[data-testid="freetalk-input"]')
+          assert(afterFallback.value.includes(textBeforeFallback)
+            && afterFallback.value.includes('fancy some tea from asr'),
+          '运行时：录音经 WAV + 内置 ASR 转成文字并追加进输入框，原有文字不丢')
+          assert(asrCalls === 1 && FakeAudioContext.closed === true,
+          '运行时：只提交一次转写请求，且解码用的 AudioContext 用完即关')
+          assert(bodyText().includes('已从录音转成文字')
+            && document.querySelectorAll('[data-testid="freetalk-page"] .animate-in').length === bubblesBeforeFallback,
+          '运行时：转写完成给出核对提示，且文字不自动发送')
+        } finally {
+          delete globalThis.window.SpeechRecognition
+          globalThis.fetch = savedFetchFb
+          if (savedFileReaderFb === undefined) delete globalThis.FileReader
+          else globalThis.FileReader = savedFileReaderFb
+          if (savedCreateObjectURL === undefined) delete globalThis.URL.createObjectURL
+          else globalThis.URL.createObjectURL = savedCreateObjectURL
+          if (savedAudioContext === undefined) delete globalThis.window.AudioContext
+          else globalThis.window.AudioContext = savedAudioContext
+          if (savedMediaRecorder === undefined) delete globalThis.window.MediaRecorder
+          else globalThis.window.MediaRecorder = savedMediaRecorder
+          if (savedMediaDevices) Object.defineProperty(globalThis.window.navigator, 'mediaDevices', savedMediaDevices)
+          else delete globalThis.window.navigator.mediaDevices
+        }
+      }
+
       /* 上游不可用（jsdom 里 fetch 打不通）→ 本地演示大肥鱼顶上 + 友好错误卡 */
       const finishBtn = document.querySelector('[data-testid="freetalk-finish"]')
       assert(!!finishBtn && finishBtn.disabled === true, '还没聊天时「结束并总结」不可点')
@@ -6315,6 +6559,57 @@ export { invokeFreetalk } from './netlify/functions/freetalk.ts'
       assert(!!document.querySelector('[data-testid="freetalk-error-card"]'),
         '上游失败同时给出友好错误卡（练习不中断）')
 
+      /* ---------- Desktop Pet 运行时：happy → 归位 → 显隐 → thinking ---------- */
+      const idlePet = document.querySelector('[data-testid="desktop-pet"]')
+      assert(!!idlePet && idlePet.getAttribute('data-state') === 'idle',
+        '运行时：一轮对话落定后宠物回到 idle，不会卡在 thinking')
+      fire(idlePet)
+      await tick(30)
+      assert(document.querySelector('[data-testid="desktop-pet"]')?.getAttribute('data-state') === 'happy'
+        && !!document.querySelector('.dp-heart-1')
+        && !!document.querySelector('[data-testid="desktop-pet"] [role="status"]'),
+      '运行时：点一下小鱼触发 happy，三颗爱心与一句角色短句同时出现')
+      const heart = document.querySelector('.dp-heart-1')
+      const heartEnd = new w.Event('animationend', { bubbles: true })
+      Object.defineProperty(heartEnd, 'animationName', { value: 'dp-heart-float' })
+      heart.dispatchEvent(heartEnd)
+      /* jsdom 没有 AnimationEvent 构造器，React 收不到合成事件；
+         这里靠 hook 的 1150ms 兜底归位验证「happy 最终一定回到 idle」。 */
+      await tick(1200)
+      const petAfterHeart = document.querySelector('[data-testid="desktop-pet"]')
+      assert(petAfterHeart?.getAttribute('data-state') === 'idle',
+        `运行时：爱心结束后 happy 归位 idle（实际=${petAfterHeart?.getAttribute('data-state')}），兜底不驱动动画`)
+
+      fire(document.querySelector('[data-testid="freetalk-pet-toggle"]'))
+      await tick(30)
+      assert(!document.querySelector('[data-testid="desktop-pet"]')
+        && document.querySelector('[data-testid="freetalk-pet-toggle"]')?.getAttribute('aria-pressed') === 'false',
+      '运行时：收起开关让宠物从 DOM 里消失，输入与发送按钮仍在原位')
+      fire(document.querySelector('[data-testid="freetalk-pet-toggle"]'))
+      await tick(30)
+      assert(!!document.querySelector('[data-testid="desktop-pet"]'),
+        '运行时：再次点击可唤回宠物，开关是纯会话态')
+
+      const petRealFetch = globalThis.fetch
+      try {
+        globalThis.fetch = async (url, init) => {
+          await new Promise((resolve) => setTimeout(resolve, 160))
+          return petRealFetch(url, init)
+        }
+        const thinkInput = document.querySelector('[data-testid="freetalk-input"]')
+        setter.call(thinkInput, 'pet is thinking')
+        thinkInput.dispatchEvent(new w.Event('input', { bubbles: true }))
+        await tick(30)
+        fire(document.querySelector('[data-testid="freetalk-send"]'))
+        await tick(25)
+        assert(document.querySelector('[data-testid="desktop-pet"]')?.getAttribute('data-state') === 'thinking'
+          && !!document.querySelector('.dp-question'),
+        '运行时：发送后等 AI 期间切到 thinking，头顶冒出问号泡泡')
+        await tick(400)
+      } finally {
+        globalThis.fetch = petRealFetch
+      }
+
       /* 结束并总结：即使上游挂了也要有一份人设化总结 */
       const finishBtn2 = document.querySelector('[data-testid="freetalk-finish"]')
       fire(finishBtn2)
@@ -6327,7 +6622,7 @@ export { invokeFreetalk } from './netlify/functions/freetalk.ts'
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

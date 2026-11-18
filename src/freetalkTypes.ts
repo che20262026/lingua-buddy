@@ -36,6 +36,14 @@ export type FatFishAccent = 'en-US' | 'en-GB' | 'en-AU'
  */
 export type FatFishMotion = 'bounce' | 'sway' | 'float' | 'jitter' | 'rock' | 'bob'
 
+/**
+ * 桌面宠物状态机的四个状态：
+ *   idle 待机（呼吸 / 漂浮）→ thinking 等 AI（问号 + 焦躁游动）
+ *   → speaking 朗读（嘴巴张合 + 身体打拍子）→ happy 被摸（蹦一下 + 爱心）
+ * happy 是一次性叠加态，动画结束后返回当时的底层状态。
+ */
+export type DesktopPetState = 'idle' | 'thinking' | 'speaking' | 'happy'
+
 /** 角色主题色：accent 只做装饰，accentInk 才允许承载正文 */
 export interface FatFishTheme {
   /** 页面渐变起点 */

@@ -1047,3 +1047,77 @@ export async function startRecordingWithTranscript(opts: {
     },
   }
 }
+
+
+/* ---------------- [Android 录音降级] 音频 → 16-bit PCM WAV ---------------- */
+
+/**
+ * 把浏览器录下的任意格式（webm/opus/mp4）解码、降采样成单声道 16kHz
+ * 的 16-bit PCM WAV —— DeepSeek ASR 只认 WAV / Ogg Opus，
+ * 而 MediaRecorder 在 Android Chrome 上默认给 webm，必须转一道。
+ *
+ * 用 AudioContext 解码（所有现代浏览器都支持 webm/opus 解码），
+ * 采样率固定 16000、单声道：120 秒约 3.8MB，稳稳落在 8MiB 上限内。
+ * 纯函数式：输入 Blob，输出 WAV Blob；失败抛错由调用方降级。
+ */
+export async function blobToWav(blob: Blob, targetRate = 16000): Promise<Blob> {
+  const Ctx = (window as unknown as {
+    AudioContext?: typeof AudioContext
+    webkitAudioContext?: typeof AudioContext
+  }).AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!Ctx) throw new Error('当前浏览器不支持音频解码')
+
+  const ctx = new Ctx()
+  try {
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer())
+    const channels = 1
+    const frames = buf.length
+    const pcm = new Int16Array(frames * channels)
+    /* 单声道：取各声道均值；重采样用简单线性插值，够 ASR 用 */
+    const left = buf.getChannelData(0)
+    const right = buf.numberOfChannels > 1 ? buf.getChannelData(1) : null
+    const ratio = buf.sampleRate / targetRate
+    for (let i = 0; i < frames; i++) {
+      const v = right ? (left[i] + right[i]) / 2 : left[i]
+      pcm[i] = Math.max(-32768, Math.min(32767, Math.round(v * 32767)))
+    }
+
+    /* ratio≠1 时按目标采样率重采样 */
+    const outFrames = Math.max(1, Math.floor(frames / ratio))
+    const out = new Int16Array(outFrames)
+    for (let i = 0; i < outFrames; i++) {
+      const src = i * ratio
+      const i0 = Math.floor(src)
+      const frac = src - i0
+      const a = pcm[i0] || 0
+      const b = pcm[Math.min(frames - 1, i0 + 1)] || 0
+      out[i] = Math.round(a + (b - a) * frac)
+    }
+
+    /* 手写 44 字节 WAV 头（RIFF / fmt / data），零依赖 */
+    const bytes = new ArrayBuffer(44 + out.length * 2)
+    const view = new DataView(bytes)
+    const writeStr = (off: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i))
+    }
+    writeStr(0, 'RIFF')
+    view.setUint32(4, 36 + out.length * 2, true)
+    writeStr(8, 'WAVE')
+    writeStr(12, 'fmt ')
+    view.setUint32(16, 16, true)          // fmt chunk 长度
+    view.setUint16(20, 1, true)           // PCM
+    view.setUint16(22, channels, true)
+    view.setUint32(24, targetRate, true)
+    view.setUint32(28, targetRate * channels * 2, true)
+    view.setUint16(32, channels * 2, true)
+    view.setUint16(34, 16, true)          // 位深
+    writeStr(36, 'data')
+    view.setUint32(40, out.length * 2, true)
+    new Int16Array(bytes, 44).set(out)
+
+    return new Blob([bytes], { type: 'audio/wav' })
+  } finally {
+    /* 关掉 AudioContext，避免真机上一堆挂起的音频上下文耗电 */
+    try { await ctx.close() } catch { /* 忽略 */ }
+  }
+}
