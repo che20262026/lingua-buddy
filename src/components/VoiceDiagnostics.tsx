@@ -94,7 +94,7 @@ export function VoiceDiagnostics() {
       return
     }
     recorderRef.current = handle
-    setNote('录音中… 说一句英文，3 秒后会自动停止。')
+    setNote('录音中，请读完再点一次「试音」停止，然后听回放。')
   }
 
   /** 听写探针：直接验证「声音 → 文字」这一环，把 interim / 重试结果摊开给用户看 */
@@ -107,7 +107,7 @@ export function VoiceDiagnostics() {
     stopSpeaking()
     setDictation(null)
     setDictating(true)
-    setDictationNote('正在听… 说一句英文，停顿一下文字会自动出现。')
+    setDictationNote('录音中，请读完再点一次「听写探针」停止；停顿不会自动结束。')
     const handle = startListening({
       accent: data.settings.accent,
       retries: 1,

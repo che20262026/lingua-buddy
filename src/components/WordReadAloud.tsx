@@ -97,7 +97,7 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
   const [notice, setNotice] = useState('')
   const [degraded, setDegraded] = useState(false)
   const [level, setLevel] = useState(0)
-  const [secondsLeft, setSecondsLeft] = useState(READ_ALOUD_POLICY.maxRecordingMs / 1000)
+  const [secondsLeft, setSecondsLeft] = useState(0)
   const handleRef = useRef<ReadAloudAttemptHandle | null>(null)
   const aliveRef = useRef(true)
   const targetWord = entry.word.toLowerCase()
@@ -124,13 +124,13 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
     }
   }, [mockMode])
 
-  /** 录音倒计时（只用于显示，真正的 10s 硬上限在服务层） */
+  /** [手动模式] 已录时长正计时（只用于显示，读完由用户点停止，没有自动硬顶） */
   useEffect(() => {
     if (phase !== 'listening' && phase !== 'recognizing') {
-      setSecondsLeft(READ_ALOUD_POLICY.maxRecordingMs / 1000)
+      setSecondsLeft(0)
       return
     }
-    const id = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000)
+    const id = setInterval(() => setSecondsLeft((s) => s + 1), 1000)
     return () => clearInterval(id)
   }, [phase])
 
@@ -286,8 +286,8 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
 
       {/* 麦克风权限前置说明（移动端与桌面端同一段） */}
       <p className="mt-3 rounded-xl bg-brand-50/70 px-3 py-2 text-[10px] leading-relaxed text-brand-700">
-        点击麦克风后浏览器会请求麦克风权限；录音最长 10 秒，只在本地用于「这句话读完整了吗」的词级比对，
-        音频不会上传、不会保存。也可以随时听标准音后自己跟读。
+        点击麦克风后浏览器会请求麦克风权限；读完由你点「停止」提交，中途停顿不会自动结束，
+        音频只在本地用于「这句话读完整了吗」的词级比对，不会上传、不会保存。
       </p>
 
       {/* Step 2：录音 / 降级自评 */}
@@ -298,7 +298,7 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
               : phase === 'result' ? 'border-mint-200 bg-mint-100/30' : 'border-white/80 bg-white/60'}`}>
           <WaveformBars level={level} mock={mockMode} active={phase === 'listening' || phase === 'recognizing'} />
           <p className="mt-1 text-center text-[11px] font-bold text-ink">
-            {phase === 'listening' ? `正在听 · 还剩 ${secondsLeft} 秒`
+            {phase === 'listening' ? `录音中 · 已录 ${secondsLeft} 秒，读完点停止`
               : phase === 'recognizing' ? (mockMode ? '演示模式 · 模拟识别中…' : '正在整理听到的文字…')
                 : phase === 'result' ? '这一遍读完啦'
                   : (mockMode ? '静态波形占位（演示模式不调用麦克风）' : '准备好了就点麦克风')}
@@ -307,13 +307,14 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
           {canRetry && (
             <div className="mt-2.5 flex gap-2">
               {phase === 'listening' || phase === 'recognizing' ? (
-                <button type="button" onClick={stopAttempt} className="btn-ghost flex-1 !py-2 !text-xs">
-                  <Icon name="check" size={13} />读完了，停止
+                <button type="button" onClick={stopAttempt} data-testid="readaloud-stop"
+                  className="pron-mic-live btn-ghost flex-1 !py-2 !text-xs !border-coral-400 !text-coral-600">
+                  <Icon name="check" size={13} />录音中 · 读完点击停止
                 </button>
               ) : (
                 <button type="button" onClick={startAttempt}
                   className="btn-primary flex-1 !py-2 !text-xs">
-                  <Icon name="mic" size={13} />{attempts === 0 ? '开始跟读' : '再读一次'}
+                  <Icon name="mic" size={13} />{attempts === 0 ? '点击开始录音' : '再读一次'}
                 </button>
               )}
             </div>

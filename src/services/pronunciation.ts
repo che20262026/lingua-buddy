@@ -22,7 +22,7 @@ import { DEFAULT_PRONUNCIATION_FLAGS } from '../wordLabTypes'
 export const READ_ALOUD_POLICY = {
   /** 少于 0.8 秒的录音提示「没听清，再试一次」，且不计入重试次数 */
   minRecordingMs: 800,
-  /** 录音最长 10 秒，超时自动停止 */
+  /** [手动模式·兼容保留] 原「录音最长 10 秒」上限，现不再自动停止；仅作历史语义占位 */
   maxRecordingMs: 10_000,
   /** 有效尝试最多 2 次；之后出现「暂时跳过」出口 */
   maxAttempts: 2,
@@ -409,12 +409,12 @@ export interface ReadAloudAttemptHandle {
 
 /**
  * Mock 模式：静态波形 + 1.5 秒「识别中」+ 覆盖率 70%–100% 的模拟漏词，结果带 mock: true。
- * 真实模式：权限前置 → 10 秒上限 → 0.8 秒最短 → 静音检测 → 空结果/网络错误降级。
+ * 真实模式：权限前置 → 用户点停止才结算（无时长硬顶、无静音自动结束）→ 最短时长 / 静音 / 空结果降级。
  */
 export function startReadAloudAttempt(opts: ReadAloudAttemptOptions): ReadAloudAttemptHandle {
   const rand = opts.random ?? Math.random
   const clock = opts.now ?? Date.now
-  const maxMs = opts.maxMs ?? READ_ALOUD_POLICY.maxRecordingMs
+  const maxMs = opts.maxMs ?? READ_ALOUD_POLICY.maxRecordingMs  // [手动模式] 兼容字段，不再用于自动停止
   const startedAt = clock()
   let settled = false
   let cancelled = false
@@ -430,7 +430,6 @@ export function startReadAloudAttempt(opts: ReadAloudAttemptOptions): ReadAloudA
   const result = new Promise<ReadAloudOutcome>((resolve) => { resolveResult = resolve })
 
   const cleanup = () => {
-    if (timer !== undefined) clearTimeout(timer)
     if (levelTimer !== undefined) clearInterval(levelTimer)
     try { recognizerHandle?.cancel() } catch { /* noop */ }
     try { meter?.close() } catch { /* noop */ }
@@ -539,7 +538,8 @@ export function startReadAloudAttempt(opts: ReadAloudAttemptOptions): ReadAloudA
       finish({ kind: 'degrade', failure: 'unsupported', message: '你的浏览器不支持语音识别，可以听标准音后自己跟读。' })
       return
     }
-    timer = setTimeout(() => { manualStop = true; recognizerHandle?.stop(); settleLive() }, maxMs)
+    /* 手动模式：没有 setTimeout 时长硬顶。
+       只有用户点 stop() 才 settleLive()；浏览器原生 onEnd 不再自动结算。 */
   }
   void begin()
 

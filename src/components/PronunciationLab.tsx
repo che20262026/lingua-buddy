@@ -45,7 +45,7 @@ type Accent = (typeof ACCENTS)[number]['value']
 
 /** 录音冷却：一次评测结束后 X 秒内不允许再次录音（防连点） */
 const COOLDOWN_MS = 3000
-/** 单次录音上限 */
+/** [手动模式] 兼容保留：录音不再按 8 秒硬顶自动停止，由用户点「读完停下」提交 */
 const RECORD_TIMEOUT_MS = 8000
 
 type Phase = 'idle' | 'listening' | 'judging' | 'result'
@@ -291,8 +291,7 @@ export function PronunciationLab({ entry, defaultAccent = 'en-US' }: Pronunciati
     setPhase('listening')
     const handle = startListening({
       accent,
-      timeoutMs: RECORD_TIMEOUT_MS,
-      silenceMs: 1500,
+      /* 手动模式：不设静音 / 时长自动收尾，读完必须点「读完停下」才打分 */
       retries: 0,
       onStatus: (msg) => { if (aliveRef.current && msg) setNotice(msg) },
       onResult: (text) => {
@@ -447,15 +446,16 @@ export function PronunciationLab({ entry, defaultAccent = 'en-US' }: Pronunciati
           <div className="mt-3 rounded-2xl border border-white/80 bg-white/60 p-3.5">
             <div className="flex items-center gap-2">
               {phase === 'listening' ? (
-                <button type="button" onClick={stopRecording} className="btn-primary flex-1 !py-2.5 !text-xs">
-                  <Icon name="check" size={13} />读完停下
+                <button type="button" onClick={stopRecording} data-testid="pron-stop"
+                  className="pron-mic-live btn-primary flex-1 !py-2.5 !text-xs !bg-coral-500">
+                  <Icon name="check" size={13} />录音中 · 读完点击停止
                 </button>
               ) : (
                 <button type="button" onClick={startRecording}
                   disabled={busy || cooldown > 0}
                   className="btn-primary flex-1 !py-2.5 !text-xs disabled:opacity-40">
                   <Icon name="mic" size={13} />
-                  {phase === 'judging' ? '考官正在打分…' : cooldown > 0 ? `冷却中 ${cooldown}s` : '开始录音'}
+                  {phase === 'judging' ? '考官正在打分…' : cooldown > 0 ? `冷却中 ${cooldown}s` : '点击开始录音'}
                 </button>
               )}
               <button type="button" onClick={() => playStandard(active.word)}
@@ -464,7 +464,7 @@ export function PronunciationLab({ entry, defaultAccent = 'en-US' }: Pronunciati
               </button>
             </div>
             <p className="mt-2 text-[10px] leading-relaxed text-muted">
-              录音最长 8 秒，说完自动收尾。识别到的文本只用于本次评测，音频不会上传、不会保存。
+              点击开始录音（按钮变红并跳动），读完再点「停止」才提交打分；中途停顿不会自动结束。音频不会上传、不会保存。
             </p>
           </div>
 

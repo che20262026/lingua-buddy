@@ -4548,6 +4548,157 @@ thinking（sending || summarizing）> speaking（voice.speakingKey）> idle
   非遮挡布局、角色分岔、随机短句、开关、兜底归位、运行时 happy / thinking / 显隐）；
   `npm run build` 通过，PWA precache 15 项，立绘资源零新增。
 
+### 41.6.6 立绘去背景板：从「摄影棚底板」到「透明悬浮件」
+
+**起因**：41.6.5 把大肥鱼变成悬浮电子宠物后，原立绘的暖白摄影棚底板成了罪魁祸首——
+它是一个**不透明的方块**，贴在半透明卡片上像贴了张海报；右下角还带着「AI生成 / AIKA DESIGN」水印。
+
+**做法**：AI 抠图（matting）→ 带 alpha 的 PNG → 转 WebP 回填原文件名。
+
+| 步骤 | 做法 | 结果 |
+|---|---|---|
+| 抠图 | 6 张立绘逐张做前景提取，提示词统一为「去掉背景板与右下角水印，只保留角色本体，输出透明背景，保留发丝与裙摆边缘细节」 | 每张 55% 左右像素全透明，四角与水印位置 alpha 归零 |
+| 归位 | 用 48×48 灰度指纹把产物自动匹配回原角色（最优误差 3–4 万，次优 5.7–8.2 万，区分度充足） | 杜绝「御姐的图配成社畜」这类张冠李戴 |
+| 复检 | 抠图结果叠在纯绿底上逐张看边缘 | 无奶油色残晕，发丝 / 蕾丝 / 鲸尾边缘完整 |
+| 回填 | Pillow 转 WebP（quality 88, method 6），**文件名与目录一字未改** | 6 张各 51.9–56.8KB，合计约 322KB |
+| 补偿 | 去底板后加了 `drop-shadow(0 6px 10px rgba(28,36,64,.22))` | 鱼有落地感，不再像剪贴画 |
+
+**验收**：冒烟新增 1 条资产回归断言——6 个 WebP 必须含 `ALPH` 块（alpha 通道），
+以后谁把带底板的图换回来，CI 立刻拦下；另一条断言锁住投影样式。
+`npm run smoke` 1535 条全绿，`npm run build` 通过。
+
+> 附带收益：去背景后立绘在深色卡片上也能用，不再被暖白底板“框住”。
+
+### 41.6.7 移动端录音失效：系统排错与修复（systematic-debugging + 兼容降级 UI）
+
+**症状**：localhost 桌面 Chrome 录音 / 识别一切正常；手机浏览器与打包后的 Android APK
+点麦克风**毫无反应**，也没有任何文字。
+
+#### 根因（按证据链排序，不是猜）
+
+| # | 根因 | 证据 | 修复 |
+|---|---|---|---|
+| R1 | **用户手势丢失** | 可红可绿探针把「点击期间」标记为手势窗口：点击时 `true`，`getUserMedia` 真正调用时已是 `false` | 移动端在点击的**同步分支**里直接开麦，不再先启动云端识别、等 `onError` 再异步降级 |
+| R2 | **没有 UA 分诊** | 旧代码对 iOS Safari / 微信 / Android WebView 与桌面 Chrome 一视同仁，但它们的识别引擎根本不同 | 新增 `src/lib/mobileVoice.ts`：识别 iOS / iPadOS 伪装 Mac / Android / 微信，移动端一律走「本地录音 + 服务端转写」 |
+| R3 | **无 API 时只写小字提示** | 旧代码只 `setNote()`，没有弹窗；用户视觉上就是「点了没反应」 | 新增 `VoiceSupportDialog`，明确写「当前浏览器不支持语音，请使用文字输入」，并给文字输入 / 新标签页出路 |
+| R4 | **陈旧 handle 吃掉下一次点击**（本轮新抓到） | 录音结束后 `recordingRef` 未清空，UI 状态却是 idle；再点一次走进「停止上一轮」分支直接 return | `onDone` / `onError` 都清空 `recordingRef` / `listeningRef`，冒烟断言清理次数 |
+
+> R1 的探针输出：修复前 `getUserMedia 调用时是否仍在用户手势窗口: false`；
+> 修复后 `true`。探针验证后已清理，等价静态护栏留在冒烟里。
+
+#### 安全上下文与能力判断
+
+- 新增 `detectVoiceEnvironment()` 作为**唯一真源**：HTTPS / localhost 才算安全上下文；
+  非安全上下文直接弹窗，不进入「假装在听」的假状态。
+- 能力判断不搞一刀切：桌面只有 `SpeechRecognition`、没有 `MediaRecorder` 时仍可识别；
+  只有两条路都不通才拦截。
+- `checkMicrophone()` 自检也复用同一套中文诊断，不再只说「需要 HTTPS」。
+
+#### Android APK / TWA / WebView 原生权限（前端修不了的部分）
+
+项目仓库里**没有** `AndroidManifest.xml`——APK 外壳在另一个工程里。请在外壳工程检查：
+
+```xml
+<!-- android/app/src/main/AndroidManifest.xml -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+```
+
+注意：
+
+- `android.permission.MICROPHONE` / `AUDIO_CAPTURE` **不是有效权限**，写了等于没写。
+- Android 6.0+ 的 `RECORD_AUDIO` 是危险权限，**清单声明 + 运行时申请**缺一不可。
+- 若是 TWA / Bubblewrap：麦克风权限在生成的 manifest 中启用，并确认站点是**已验证来源**
+  （`assetlinks.json`）——TWA 本身用 Chrome 引擎，不必写 WebView 的 `onPermissionRequest`。
+- 若是 Capacitor / Cordova / 自写 WebView：宿主还必须在 `WebChromeClient.onPermissionRequest()`
+  里把 `RESOURCE_AUDIO_CAPTURE` 映射到 `RECORD_AUDIO` 并 `request.grant(...)`；
+  没有这一步，网页侧会静默拿到 `NotReadableError` / 直接失败。
+- 运行时申请示例（Kotlin）：
+
+```kotlin
+private val requestMic = registerForActivityResult(
+  ActivityResultContracts.RequestPermission()
+) { granted -> if (granted) webView.reload() else showMicDeniedHint() }
+
+fun ensureMic() {
+  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+      != PackageManager.PERMISSION_GRANTED) requestMic.launch(Manifest.permission.RECORD_AUDIO)
+}
+```
+
+#### 验收
+
+- 可红可绿手势探针：修复前 RED、修复后 GREEN；
+- `npm run smoke`：1544 条全绿（新增移动端 UA 分诊、手势内开麦分支、弹窗、
+  陈旧 handle 清理等断言）；`npm run build` 通过；
+- 浏览器 / TWA 真机仍需人工复核一次：首次权限弹窗、拒绝权限后的文字输入路径、
+  微信内置浏览器的提示文案。
+
+### 41.6.8 手动录音模式：Start / Stop 只由用户点击（systematic-debugging + best-practices + mobile-ui-ux）
+
+> 现象：所有用到麦克风的模块（主对话页、鱼塘自由对话、Word Lab 发音评测、S2.5 跟读、试音台）
+> 录音都太短——用户还没读完，或中间稍作停顿，录音就自己结束了。
+
+#### 根本原因（先红灯取证，再修）
+
+按 systematic-debugging 建了可红可绿的探针 `manual-stop-probe.mjs`：模拟用户说了半句就停顿，
+断言「用户没点停止时 `onResult` / `onDone` 不得被调用」。修复前两条路径都是 RED（各被调用 1 次）。
+根因是**提交（emit）没有和「用户点停止」绑定**，共有五条自动提交路径：
+
+| # | 自动停止点 | 位置 | 触发条件 |
+|---|---|---|---|
+| R1 | `armSilenceTimer` | `lib/speech.startListening` | 静音 4s（Word Lab 只有 1.5s）→ `gracefulStop('silence')` → emit |
+| R2 | `maxMs` 定时器 | `lib/speech.startRecording` | 30s/60s 到点自动 `recorder.stop()` → onDone |
+| R3 | 原生 `onEnd` | `lib/speech.startListening` | 浏览器静音断开，只要有文字就 `finish('emit')` |
+| R4 | `timeoutMs` 硬顶 | `lib/speech` / `services/pronunciation` | 180s / 10s 到点自动结算 |
+| R5 | `onError` 有字即交 | `lib/speech.startListening` | 服务报错就把半句文字交出去 |
+
+浏览器原生 `SpeechRecognition` 即使 `continuous=true` 也会在静音几秒后强制 `onend`——
+R3 把这次系统级断开当成了「用户说完了」，这是「稍作停顿就结束」的直接元凶。
+
+#### 修复：把 emit 收敛到唯一出口
+
+核心改造在 `src/lib/speech.ts`，`finish('emit')` 成为全模块唯一文字提交出口，
+且**只有 `handle.stop()`（用户点击）可达**：
+
+```ts
+const onEnd = () => {
+  if (settled) return
+  if (manual) { finish('emit'); return }   // 用户点过停止 → 结算
+  // 用户没点停止 → 一律续听，绝不自动提交
+  if (!fullText()) { /* 连续 3 次静默无字 → 报 no-speech，让上层切录音 */ }
+  restart('还在听…停顿没关系，读完请点「停止」。')
+}
+```
+
+- 删除 `armSilenceTimer` / `armDeadlineTimer` / `MAX_SESSION_MS` / 录音 `maxMs` 定时器 /
+  跟读服务的 10s 硬顶 `setTimeout`——没有任何定时器替用户结束录音。
+- 静音断开 / `no-speech` / `aborted` → 续听（最多 40 次无进展）；有文字时长续听，保住已读内容。
+- `network` / `service-not-allowed`：有文字则保留并提示「点停止提交」，无文字则报错走降级（录音转写 / 补写）。
+- `timeoutMs` / `silenceMs` / `maxMs` 作为兼容字段保留在类型里，但**不再产生任何定时停止**。
+
+#### 三处麦克风 UI 统一为两态（移动端体验）
+
+| 模块 | 点击开始 | 录音中（点击停止） |
+|---|---|---|
+| 鱼塘 `FreeTalk` | 灰色麦克风 | 角色主题色 + `ff-mic-pulse` 波形脉冲，「录音中，请读完点击麦克风停止」 |
+| 主对话 `Dialogue` | 普通麦克风 | 变红 + `pulse-ring`，同文案 |
+| Word Lab 评测 / S2.5 跟读 | 「点击开始录音」 | 变红 + `pron-mic-live` 波形，「录音中 · 读完点击停止」 |
+
+- 实时字幕用 `aria-live` 播报，明确标注「未确认片段请核对」；`aria-label` 区分「点击开始 / 录音中点停止」。
+- 录音态禁用发送按钮，杜绝半句话发出去；手动输入 / 切角色 / 卸载都会 cancel 释放麦克风。
+- S2.5 跟读把「倒计时还剩 N 秒」改成「已录 N 秒」正计时，不再暗示有自动硬顶。
+- 所有波形动画只动 `transform` / `opacity`，`prefers-reduced-motion: reduce` 下全关；无 `setInterval` 改样式。
+
+#### 验收
+
+- 红灯探针 `manual-stop-probe.mjs`：修复前 2 条 RED → 修复后 2 条 GREEN，验证后清理；
+- `npm run smoke`：1555 条全绿（新增核心层手动模式护栏、三处 UI 两态断言、
+  「用户没点停止不写入输入框」的端到端回归）；`npm run build` 通过；
+- 性能体检：两处麦克风组件 94/100 A 与 88/100 B（WARN 为既有 eslint-disable 与
+  Next.js 专属 error.tsx 检查，本项目已有全局 ErrorBoundary，属误报）。
+
 ### 41.7 落盘清单
 
 | 文件 | 说明 |
@@ -4557,10 +4708,13 @@ thinking（sending || summarizing）> speaking（voice.speakingKey）> idle
 | `src/data/fatFishCharacters.ts`（新） | 6 条鱼的**唯一人设真源**（前后端共用） |
 | `src/data/fatFishFallbacks.ts`（新） | 离线 / 上游失败时的兜底文案（保持角色口吻） |
 | `src/components/FatFishAvatar.tsx`（新） | 6 条鱼本地立体立绘 WebP（对外 props / `data-testid` / 动画类名不变，加载失败降级 emoji） |
+| `public/fatfish/*.webp`（改） | 立绘抠掉背景板与水印，改为**带 alpha 通道**的透明 WebP（文件名不变，各 51.9–56.8KB） |
 | `src/hooks/useFatFishVoice.ts`（新） | 口音严格匹配的 TTS 层 |
 | `src/services/freetalk.ts`（新） | 前端服务：失败分类 + 本地演示降级 |
 | `src/pages/FreeTalk.tsx`（新） | 鱼塘页：选鱼 / 选口音 / 聊 / 总结；输入台挂悬浮宠物与显隐开关 |
 | `src/components/DesktopPet.tsx`（新） | 悬浮电子宠物：absolute 停泊 + 四态外壳 + 问号 / 爱心 / 短句 + 焦点可达 |
+| `src/lib/mobileVoice.ts`（新） | 移动端语音环境统一真源：UA 分诊 / HTTPS 硬门槛 / 直录策略 / 中文诊断 |
+| `src/components/VoiceSupportDialog.tsx`（新） | 不支持 / 权限被拒时的 alertdialog，明确给出文字输入与新标签页出路 |
 | `src/hooks/useDesktopPet.ts`（新） | 四态状态机：底层状态派生、happy 一次性叠加、animationend 归位 + 兜底清理 |
 | `src/index.css`（改） | 主题变量 + 6 套朗读动作 + 电子宠物 4 态 / 人设分岔 keyframes + reduced-motion 降级 |
 | `src/App.tsx` / `src/types.ts` / `src/pages/Home.tsx`（改） | 新增 `freeTalk` 视图与首页入口卡 |
@@ -4570,7 +4724,9 @@ thinking（sending || summarizing）> speaking（voice.speakingKey）> idle
 | `src/hooks/useVoiceDictation.ts`（新） | 语音输入双通道状态机：口音跟随 / 实时字幕 / 识别失败切录音 / ASR 转文字 / 只进输入框不自动发送 |
 | `netlify/functions/transcribe.ts`（新） | 内置 ASR 端点：单一真源 `invokeTranscribe` + `asr:` 独立分桶 + 格式/大小/时长白名单 + 失败 fallback |
 | `src/services/transcribeAudio.ts`（新） | 前端转写服务：WAV → base64 → 唯一端点，429/4xx/5xx/空结果分类为可降级中文提示 |
-| `src/lib/speech.ts`（改） | 长录音 180s/4s + 息屏补偿 + `resultIndex` 修复；新增 `blobToWav()`（16kHz 单声道 PCM） |
+| `src/lib/speech.ts`（改） | 手动录音模式：移除静音/时长/maxMs 定时器，`finish('emit')` 唯一出口只在用户 stop 可达；原生 onend 续听；`resultIndex` 修复 + `blobToWav()`（16kHz 单声道 PCM）保留 |
+| `src/components/PronunciationLab.tsx` / `src/components/WordReadAloud.tsx`（改） | Word Lab 两处录音改手动两态：停止态变红 + `pron-mic-live` 波形，移除静音/时长自动收尾，跟读倒计时改已录正计时 |
+| `src/pages/Dialogue.tsx` / `src/components/VoiceDiagnostics.tsx`（改） | 主对话页与试音台改手动两态文案与 `pulse-ring` 录音提示；按钮 aria-label 区分开始/停止 |
 | `.env.example`（改） | v2.8：补 `LLM_ASR_URL` 与 `ASR_RATE_LIMIT_*`，说明四个函数桶互相隔离 |
 
 ### 41.8 本地联调

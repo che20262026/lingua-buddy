@@ -11,6 +11,7 @@ import { useVoiceDictation } from '../hooks/useVoiceDictation'
 import { useAbortableRequest } from '../hooks/useAbortableRequest'
 import { ThinkingSkeleton } from '../components/ThinkingSkeleton'
 import { AiErrorCard } from '../components/AiErrorCard'
+import { VoiceSupportDialog } from '../components/VoiceSupportDialog'
 import type { AiErrorCode } from '../components/aiErrorChannel'
 import { Icon } from '../components/ui'
 import { cn, uid } from '../lib/utils'
@@ -424,13 +425,13 @@ export function FreeTalk() {
             onHappyEnd={pet.finishHappy}
           />
         )}
-        {/* [语音输入] 实时字幕：说完自动收进输入框，未确认片段提示核对 */}
+        {/* [语音输入] 实时字幕：点「停止」才收进输入框，未确认片段提示核对 */}
         {(dictation.listening || dictation.recording || dictation.interim) && (
           <div data-testid="freetalk-dictation-interim" aria-live="polite"
             className="ff-dictation-live rounded-2xl border px-3 py-2 text-[12px] leading-relaxed">
-            <span className="mr-1.5 font-bold" style={{ color: character.theme.accentInk }}>🎙 听到：</span>
-            <span className="en-text text-ink">{dictation.interim || (dictation.recording ? '正在录音…说完点麦克风结束' : '正在听…')}</span>
-            <span className="ml-1 text-[10px] text-muted">（未确认片段请核对）</span>
+            <span className="mr-1.5 font-bold" style={{ color: character.theme.accentInk }}>🎙 录音中：</span>
+            <span className="en-text text-ink">{dictation.interim || '正在听，请继续说…'}</span>
+            <span className="ml-1 text-[10px] text-muted">（读完点麦克风停止，未确认片段请核对）</span>
           </div>
         )}
         {!dictation.listening && !dictation.recording && dictation.note && (
@@ -454,10 +455,10 @@ export function FreeTalk() {
             data-testid="freetalk-input"
             className="field en-text max-h-28 min-h-[52px] flex-1 resize-none !py-2.5 text-sm"
           />
-          {/* [语音输入] 麦克风：点击开始听写，再点一次停止出字 */}
+          {/* [语音输入] 手动模式：点击开始录音（变色+波形），再点一次停止并提交 */}
           <button type="button" onClick={dictation.toggle}
             data-testid="freetalk-mic"
-            aria-label={dictation.recording ? '停止录音并转文字' : dictation.listening ? '停止听写并出字' : '语音输入：说话转成文字'}
+            aria-label={dictation.recording || dictation.listening ? '录音中，点击停止并提交' : '点击开始录音'}
             aria-pressed={dictation.listening || dictation.recording}
             className={cn(
               'flex h-[52px] w-[44px] shrink-0 items-center justify-center rounded-2xl border-2 transition',
@@ -480,11 +481,11 @@ export function FreeTalk() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="min-w-0 flex-1 text-[10px] leading-tight text-muted">
             {dictation.recording
-              ? '正在录音… 说完点一下麦克风，自动转文字。'
+              ? '录音中，请读完点击麦克风停止。'
               : dictation.listening
-              ? '正在听… 说完停顿一下自动出字，再点麦克风可停止。'
+              ? '录音中，请读完点击麦克风停止；停顿不会自动结束。'
               : summary ? '已经收尾啦，可以点「再来一轮」重新开聊。'
-                : '点麦克风说话转文字；或随时点「结束并总结」让胖鱼写反馈。'}
+                : '点麦克风开始录音，读完再点一次停止并转成文字。'}
           </p>
           <div className="flex shrink-0 items-center gap-2">
             {/* [Desktop Pet] 碍事就收起来；纯会话态，不写 localStorage */}
@@ -506,6 +507,11 @@ export function FreeTalk() {
           </div>
         </div>
       </div>
+
+      {/* [兼容降级] 浏览器不支持 / 权限被拒时明确弹窗，绝不静默失败 */}
+      {dictation.notice && (
+        <VoiceSupportDialog notice={dictation.notice} onClose={dictation.dismissNotice} />
+      )}
     </div>
   )
 }

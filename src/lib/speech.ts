@@ -1,4 +1,5 @@
 import type { Settings } from '../types'
+import { detectVoiceEnvironment, unsupportedVoiceMessage } from './mobileVoice'
 
 /**
  * 浏览器语音能力封装：朗读 / 云端听写 / 本地录音 / 录音转文字 四级降级。
@@ -9,12 +10,12 @@ import type { Settings } from '../types'
  * 因此不能只用「构造器在不在」判断可用性，必须做权限预检、错误码翻译，
  * 并提供 MediaRecorder 本地录音作为仍然可用的发音练习降级路径。
  *
- * v1.2 修复「录了音却没出文字」：
- *   1. 手动停止 / 超时一律用 stop() 让浏览器 flush 最终片段，绝不 abort() 丢字；
- *   2. interim（实时字幕）即使没等到 isFinal 也会作为「待核对文字」交付；
- *   3. network 偶发中断自动重建识别器重试一次；
- *   4. 说完静音约 1.8 秒自动收尾，无需再点一次麦克风；
- *   5. 录音与听写可并行采集，录音结束后还能走外部 ASR 或手动补写。
+ * v1.3 [手动模式] 重构录音生命周期：
+ *   1. Start / Stop 只能由用户点 UI 触发；静音、总时长、原生 onend 都不再自动提交；
+ *   2. 浏览器静音断开就续听（最多 40 次无进展），把「是否说完」的决定权留给用户；
+ *   3. finish('emit') 是全模块唯一的文字提交出口，且只在 manual stop 后可达；
+ *   4. 录音器（MediaRecorder）移除 maxMs 定时器，只由 handle.stop() 触发 onDone。
+ * 保留：权限预检、错误码翻译、降级录音、final/interim 合并、续段 off-by-one 修复。
  */
 
 export const speechSupported = (): boolean =>
@@ -414,13 +415,15 @@ function friendlyMicError(name: string, fallback?: unknown): string {
 /** 主动探测麦克风权限：拿到流后立刻释放，只为拿到明确结论 */
 export async function checkMicrophone(): Promise<{ ok: boolean; reason: string }> {
   if (typeof window === 'undefined') return { ok: false, reason: '当前环境没有浏览器音频接口。' }
+  /* [移动端兼容] 先查 HTTPS / 微信 / WebView：这些环境连 getUserMedia 都不会暴露，
+     旧代码只回一句「需要 HTTPS」，用户不知道还能打字，也不知道该怎么救。 */
+  const env = detectVoiceEnvironment()
+  if (!env.canUseMicrophone) return { ok: false, reason: unsupportedVoiceMessage(env) }
   const md = window.navigator?.mediaDevices as MediaDevices | undefined
   if (!md?.getUserMedia) {
     return {
       ok: false,
-      reason: isInIframe()
-        ? '麦克风接口被预览面板的权限策略屏蔽了。请点「在新标签页打开」后重试。'
-        : '当前页面无法访问麦克风接口（需要 HTTPS / localhost，且浏览器需支持）。',
+      reason: unsupportedVoiceMessage(env),
     }
   }
   let stream: MediaStream | null = null
@@ -464,9 +467,9 @@ export interface TranscriptMeta {
   durationMs: number
   /** 含浏览器尚未确认的 interim 片段，UI 应提示用户核对 */
   partial: boolean
-  /** 本次会话自动重试次数 */
+  /** 本次会话自动续听次数（浏览器原生 onend / 可恢复错误触发，非自动提交） */
   retries: number
-  reason: 'final' | 'manual' | 'silence' | 'timeout' | 'service-end' | 'error'
+  reason: 'final' | 'manual' | 'error'
 }
 
 export interface ListeningOptions {
@@ -476,14 +479,15 @@ export interface ListeningOptions {
   onInterim?: (text: string) => void
   onError?: (code: string, info: SpeechErrorInfo) => void
   onEnd?: () => void
-  /** 状态提示：重试 / 等待最终结果 / 服务中断但已保留文字 */
+  /** 状态提示：续听 / 等待用户停止 / 服务中断 */
   onStatus?: (message: string) => void
-  /** 总超时，默认 15 秒 */
+  /**
+   * [手动模式·兼容字段] 保留以兼容既有调用方，但**不再产生自动停止**：
+   * 静音与总时长都不再替用户结束录音，只有 handle.stop() 才提交。
+   */
   timeoutMs?: number
-  /** network 等偶发错误的自动重试次数，默认 1 */
-  retries?: number
-  /** 说完静音多久自动收尾出字，默认 1800ms；0 表示关闭 */
   silenceMs?: number
+  retries?: number
 }
 
 export interface ListeningHandle {
@@ -518,11 +522,12 @@ export function composeTranscript(
 }
 
 /**
- * [移动端长录音] 总会话时长硬顶：3 分钟。
- * 移动端浏览器（Android Chrome ~60s / iOS Safari ~20–60s）会强制结束
- * SpeechRecognition 会话，需要在总窗口内自动续听；到顶后停，绝不无限占用麦克风。
+ * [手动模式] 不再设置会话时长硬顶，也不再随静音自动收尾。
+ * 浏览器（含 Chrome / Safari）即使 continuous=true 也会在静音数秒后强制 onend，
+ * 这里统一「续听」而不是「自动完成」——录音的停止只能由用户点击 UI 触发。
+ * 续听连续无进展超过阈值时转为暂停态，保留已听文字，等用户点停止提交。
  */
-const MAX_SESSION_MS = 180000
+const MAX_RESTART_WITHOUT_PROGRESS = 40
 
 export function startListening(opts: ListeningOptions): ListeningHandle | null {
   if (!recognitionSupported()) return null
@@ -533,13 +538,7 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
   // 关键：自动朗读会把 AI 的声音送进麦克风，也会抢占音频设备
   stopSpeaking()
 
-  let startedAt = Date.now() // [移动端长录音] let：切后台补偿时长时要往后推
-  const maxRetries = Math.max(0, Math.min(3, opts.retries ?? 1))
-  /* [移动端长录音] 默认从 15s/1.8s 提到 180s/4s：
-     手机用户说话慢、中途思考停顿 2 秒是常态，1.8s 静音会把人误判成「说完了」。
-     发音评测等短场景仍显式传 8s/1.5s，不受此默认值影响。 */
-  const timeoutMs = opts.timeoutMs ?? MAX_SESSION_MS
-  const silenceMs = opts.silenceMs ?? 4000
+  let startedAt = Date.now() // 仅用于统计本次会话时长，不再作为自动停止依据
   const graceMs = 900 // stop() 之后留给浏览器提交 final 的窗口
 
   const finals: Array<string | undefined> = []
@@ -550,22 +549,15 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
   let cancelled = false
   let manual = false
   let stoppedByUs = false
-  let retries = 0
+  let restartsWithoutProgress = 0
   let lastErrorCode = ''
   let reason: TranscriptMeta['reason'] = 'final'
   let current: RecognitionLike | null = null
-  let timer: number | undefined
   let graceTimer: number | undefined
-  let silenceTimer: number | undefined
-  /** [移动端长录音] 页面是否在后台：后台时冻结静音/总超时计时，避免被系统节流误杀 */
-  let pageHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
-  let hiddenAt = 0
 
   const clearTimers = () => {
-    for (const t of [timer, graceTimer, silenceTimer]) {
-      if (t !== undefined) { try { window.clearTimeout(t) } catch { /* 忽略 */ } }
-    }
-    timer = undefined; graceTimer = undefined; silenceTimer = undefined
+    if (graceTimer !== undefined) { try { window.clearTimeout(graceTimer) } catch { /* 忽略 */ } }
+    graceTimer = undefined
   }
   const detach = (r: RecognitionLike | null) => {
     if (!r) return
@@ -582,23 +574,25 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
     try { if (typeof r.abort === 'function') r.abort(); else r.stop() } catch { /* 忽略 */ }
   }
 
-  /** 所有回调只结算一次，避免 onerror / onend / 超时 / 静音收尾互相打架 */
-  const finish = (mode: 'emit' | 'error' | 'silent', code = '') => {
+  /**
+   * 唯一结算出口。手动模式铁律：
+   *   - 只有用户点停止（manual=true）才可能 emit 文字；
+   *   - 任何自动事件（静音 / 超时 / 原生 onend / 服务错误）都不 emit；
+   *     它们只能「续听」或「报错终止」，绝不替用户提交。
+   */
+  const finish = (mode: 'emit' | 'error', code = '') => {
     if (settled) return
     settled = true
     clearTimers()
-    removeVisibilityHandler()
     setMicActive(false)
     const text = fullText()
     releaseCurrent(!stoppedByUs)
-    if (mode === 'silent') { opts.onEnd?.(); return }
-
     if (mode === 'emit' && text) {
       opts.onResult(text, {
         confidence: confidenceCount ? confidenceSum / confidenceCount : 0,
         durationMs: Date.now() - startedAt,
         partial: confirmedText() !== text,
-        retries,
+        retries: restartsWithoutProgress,
         reason,
       })
     } else if (mode === 'error' || (mode === 'emit' && !text && !manual)) {
@@ -609,7 +603,7 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
     opts.onEnd?.()
   }
 
-  /** 用 stop() 收尾：浏览器会把最后一句 flush 成 final，abort() 会直接丢掉 */
+  /** 用户点停止：唯一允许走 emit 的入口 */
   const gracefulStop = (why: TranscriptMeta['reason']) => {
     if (settled || cancelled) return
     manual = true
@@ -621,20 +615,6 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
     try { r.stop() } catch { finish('emit'); return }
     // onend 通常会带着最终结果到来；不来也要在 grace 后结算，不能一直转圈
     graceTimer = window.setTimeout(() => finish('emit'), graceMs)
-  }
-
-  const armSilenceTimer = () => {
-    if (silenceTimer !== undefined) { try { window.clearTimeout(silenceTimer) } catch { /* 忽略 */ } }
-    silenceTimer = undefined
-    if (silenceMs <= 0 || settled || cancelled || manual) return
-    if (!fullText()) return
-    // 说完停顿一会儿就自动出字；期间继续说话会不断重置计时
-    silenceTimer = window.setTimeout(() => {
-      if (!settled && !manual) {
-        opts.onStatus?.('说完了？正在整理这段文字…')
-        gracefulStop('silence')
-      }
-    }, silenceMs)
   }
 
   const onResult = (e: RecognitionEventLike) => {
@@ -659,7 +639,8 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
     for (const key of [...interims.keys()]) if (key < from) interims.delete(key)
     const text = fullText()
     if (text) opts.onInterim?.(text)
-    armSilenceTimer()
+    // 有了新进展就重置「连续无进展」计数，长句中间停顿不会被误判成结束
+    if (text) restartsWithoutProgress = 0
   }
 
   const onError = (e: { error?: string }) => {
@@ -669,19 +650,25 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
     // 用户已主动停止：无论浏览器回什么错，都先把已听到的文字交出去
     if (manual) { finish('emit'); return }
 
-    const text = fullText()
-    const retryable = ['network', 'service-not-allowed', 'aborted', 'no-speech'].includes(code)
-    if (!text && retryable && retries < maxRetries) {
-      retries++
-      restart(code === 'no-speech' ? '还没听到声音，正在继续听…' : '识别服务中断，正在自动重试一次…')
+    /* 手动模式：识别错误一律不自动提交。
+       - 临时抖动（no-speech / aborted）→ 续听；
+       - 服务不可用（network / service-not-allowed）且有已听文字 → 保留文字，
+         提示用户点停止提交，绝不丢掉已经读出的部分；
+       - 服务不可用且无文字 → 报错，让上层走降级 / 补写。 */
+    const transient = ['aborted', 'no-speech'].includes(code)
+    if (transient && restartsWithoutProgress < MAX_RESTART_WITHOUT_PROGRESS) {
+      restartsWithoutProgress++
+      restart(code === 'no-speech'
+        ? '还没听到声音，继续听…读完请点「停止」。'
+        : '会话抖了一下，正在续听…读完请点「停止」。')
       return
     }
-    if (text) {
-      // 有文字就优先保住文字：服务断了也把听到的部分交付，让用户核对后照常发送
+    if (fullText()) {
       reason = 'error'
-      opts.onStatus?.(`识别服务中断（${code}），已保留听到的文字，请核对后再发送。`)
-      finish('emit')
-      return
+      setMicActive(false)
+      releaseCurrent()
+      opts.onStatus?.(`识别中断（${code}），已保留听到的内容；点「停止」即可提交。`)
+      return // 不 settle：等用户点停止时 emit 已保留文字
     }
     reason = 'error'
     finish('error', code)
@@ -689,16 +676,27 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
 
   const onEnd = () => {
     if (settled) return
-    const text = fullText()
-    if (manual || text) {
-      reason = manual ? reason : 'service-end'
-      finish('emit')
+    /* 手动模式：浏览器原生 onend（静音断开 / 服务超时）不再自动提交。
+       用户点过停止 → 结算；否则 → 续听，直到用户主动停止或连续无进展到上限。 */
+    if (manual) { finish('emit'); return }
+
+    /* 一句都没听到就连续静默结束：这是「服务连不上」的典型信号（Google 被墙），
+       快速失败让上层切录音，别让用户对着没反应的麦克风干等。 */
+    if (!fullText()) {
+      restartsWithoutProgress++
+      if (restartsWithoutProgress >= 3) {
+        reason = 'error'
+        finish('error', 'no-speech')
+        return
+      }
+      restart('还在听…读完请点「停止」。')
       return
     }
-    // 没错误也没结果：等价于没听到声音，先自动续听一次再放弃
-    if (retries < maxRetries && !lastErrorCode) {
-      retries++
-      restart('还没听到声音，正在继续听…')
+
+    /* 已经听到内容：停顿不算结束，长续听把「是否读完」交还用户 */
+    if (restartsWithoutProgress < MAX_RESTART_WITHOUT_PROGRESS) {
+      restartsWithoutProgress++
+      restart('还在听…停顿没关系，读完请点「停止」。')
       return
     }
     reason = 'error'
@@ -737,63 +735,11 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
     createRecognizer()
   }
 
-  /** 总超时：按「已过去的会话时间」动态计算剩余额度，续听后不会重新计满 3 分钟 */
-  const armDeadlineTimer = () => {
-    if (timer !== undefined) { try { window.clearTimeout(timer) } catch { /* 忽略 */ } }
-    timer = undefined
-    if (pageHidden) return // 后台冻结，回前台再武装
-    const remaining = Math.max(0, timeoutMs - (Date.now() - startedAt))
-    timer = window.setTimeout(() => {
-      if (settled || cancelled) return
-      opts.onStatus?.('时间到，正在整理听到的文字…')
-      gracefulStop('timeout')
-    }, remaining)
-  }
+  /* 手动模式：没有总超时、没有静音计时、没有息屏补偿——
+     麦克风一直开到用户主动点「停止」为止；这几样定时器是「替用户结束」的元凶，全部移除。 */
 
-  /**
-   * [移动端长录音] 息屏 / 切后台处理：
-   * 后台时浏览器会把 setTimeout 节流到 1 分钟甚至冻结，MediaRecorder 流也可能被系统挂起。
-   * 这里在隐藏时清掉计时器、记录离场时刻；回前台把后台时长「补偿」回 startedAt，
-   * 相当于会话时间暂停，避免用户什么都没说就被总超时误杀。
-   */
-  const onVisibilityChange = () => {
-    if (settled || cancelled) return
-    const doc = typeof document !== 'undefined' ? document : null
-    if (!doc) return
-    if (doc.visibilityState === 'hidden') {
-      pageHidden = true
-      hiddenAt = Date.now()
-      for (const t of [timer, silenceTimer]) {
-        if (t !== undefined) { try { window.clearTimeout(t) } catch { /* 忽略 */ } }
-      }
-      timer = undefined; silenceTimer = undefined
-      opts.onStatus?.('页面切到后台，听写已暂停；回来后继续。')
-    } else {
-      if (!pageHidden) return
-      pageHidden = false
-      const away = hiddenAt ? Date.now() - hiddenAt : 0
-      if (away > 0) startedAt += away // 时间补偿：后台不计入会话时长
-      hiddenAt = 0
-      opts.onStatus?.('欢迎回来，继续听…')
-      armDeadlineTimer()
-    }
-  }
-
-  /** 注册 / 移除可见性监听（finish 与 cancel 都要摘掉，绝不留全局监听） */
-  const addVisibilityHandler = () => {
-    if (typeof document === 'undefined' || !document.addEventListener) return
-    try { document.addEventListener('visibilitychange', onVisibilityChange) } catch { /* 忽略 */ }
-  }
-  function removeVisibilityHandler() {
-    if (typeof document === 'undefined' || !document.removeEventListener) return
-    try { document.removeEventListener('visibilitychange', onVisibilityChange) } catch { /* 忽略 */ }
-  }
-
-  addVisibilityHandler()
   createRecognizer()
-  if (settled) { removeVisibilityHandler(); return { stop: () => {}, cancel: () => {} } }
-
-  armDeadlineTimer()
+  if (settled) return { stop: () => {}, cancel: () => {} }
 
   return {
     stop: () => {
@@ -806,7 +752,6 @@ export function startListening(opts: ListeningOptions): ListeningHandle | null {
       cancelled = true
       settled = true
       clearTimers()
-      removeVisibilityHandler()
       setMicActive(false)
       releaseCurrent()
       // 主动丢弃：不回调 onResult / onError / onEnd
@@ -834,6 +779,7 @@ function pickMimeType(): string {
 export async function startRecording(opts: {
   onDone: (result: RecordingResult) => void
   onError: (message: string) => void
+  /** [手动模式·兼容字段] 不再产生自动停止；录音只由 handle.stop() 结束 */
   maxMs?: number
 }): Promise<RecordingHandle | null> {
   if (!recordingSupported()) {
@@ -866,10 +812,8 @@ export async function startRecording(opts: {
   const chunks: BlobPart[] = []
   const startedAt = Date.now()
   let done = false
-  let timer: number | undefined
 
   const release = () => {
-    if (timer !== undefined) { window.clearTimeout(timer); timer = undefined }
     // 互斥：麦克风释放后，TTS 才被允许重新发声
     setMicActive(false)
     try { stream.getTracks().forEach((t) => t.stop()) } catch { /* 忽略 */ }
@@ -902,10 +846,9 @@ export async function startRecording(opts: {
   // 互斥：录音一启动就占用麦克风，TTS 必须闭嘴
   setMicActive(true)
 
-  // 防止忘记点停止导致麦克风一直被占用
-  timer = window.setTimeout(() => {
-    try { if (recorder.state !== 'inactive') recorder.stop() } catch { finish(true) }
-  }, opts.maxMs ?? 30000)
+  /* 手动模式：没有 maxMs 自动停止定时器——录音一直开到用户点「停止」。
+     浏览器原生可能在后台挂起 MediaRecorder，但那属于环境故障，由 onerror 处理，
+     绝不「到点自动提交」。 */
 
   return {
     stop: () => {
@@ -1016,9 +959,9 @@ export async function startRecordingWithTranscript(opts: {
   if (opts.useBrowserRecognition !== false && recognitionSupported()) {
     listening = startListening({
       accent: opts.accent,
-      retries: 0, // 已在录音，避免重建识别器时抢麦克风
-      timeoutMs: opts.maxMs ?? 30000,
-      silenceMs: 0, // 由录音的停止动作统一收尾
+      /* 手动模式：timeoutMs / silenceMs 已是兼容字段，不产生自动停止；
+         并行听写只负责实时出字，收尾完全由下面的 recording.stop() 驱动。 */
+      retries: 0,
       onInterim: (t) => opts.onInterim?.(t),
       onResult: (t, meta) => {
         transcript = t

@@ -560,27 +560,30 @@ try {
       `${rel} 没有本地录制 / 转存视频的能力`)
   }
 
-  /* ============ v1.2：录音转文字四个丢字场景的回归护栏 ============ */
+  /* ============ 手动录音模式：Start/Stop 只由用户点击，无自动停止 ============ */
   const { composeTranscript, startListening } = speechMod
 
-  /* [移动端长录音] 根因护栏：默认超时/静音阈值 + 会话续听 + 可见性恢复 */
+  /* [手动模式] 根因护栏：静音 / 时长定时器彻底移除，提交只在 manual stop */
   const speechSrcRaw = fs.readFileSync(path.join(root, 'src/lib/speech.ts'), 'utf8')
-  const maxSessionConst = Number(speechSrcRaw.match(/const MAX_SESSION_MS = (\d+)/)?.[1] || 0)
-  const defTimeout = Number(speechSrcRaw.match(/const timeoutMs = opts\.timeoutMs \?\? (\d+|MAX_SESSION_MS)/)?.[1] || 0) || maxSessionConst
-  const defSilence = Number(speechSrcRaw.match(/const silenceMs = opts\.silenceMs \?\? (\d+)/)?.[1] || 0)
-  assert(defTimeout >= 60000 && defSilence >= 3000,
-    '移动端长录音：听写默认超时 ≥60s、静音收尾 ≥3s（手机说话慢/停顿久不被误切断）')
-  assert(speechSrcRaw.includes('startedAt += away') && speechSrcRaw.includes('const armDeadlineTimer')
-    && /remaining = Math\.max\(0, timeoutMs - \(Date\.now\(\) - startedAt\)\)/.test(speechSrcRaw),
-    '移动端长录音：息屏时长补偿回会话预算 + 总超时按剩余额度动态计算（切后台偷走的时间不算数）')
-  assert(speechSrcRaw.includes('visibilitychange') && speechSrcRaw.includes('visibilityState'),
-    '移动端切后台/息屏：监听 visibilitychange，回前台恢复被冻结的听写计时')
+  assert(!/armSilenceTimer|armDeadlineTimer|MAX_SESSION_MS|silenceTimer\b|const silenceMs\s*=/.test(speechSrcRaw),
+    '手动模式：speech.ts 不再有任何静音 / 总时长自动收尾定时器')
+  assert(!/setTimeout\([^)]*gracefulStop\('(silence|timeout)'\)/.test(speechSrcRaw)
+    && !/gracefulStop\('timeout'\)/.test(speechSrcRaw),
+    '手动模式：不再因静音或超时触发 gracefulStop，杜绝替用户结束录音')
+  assert(speechSrcRaw.includes('if (manual) { finish(\'emit\'); return }')
+    && speechSrcRaw.includes("const MAX_RESTART_WITHOUT_PROGRESS = 40")
+    && /const onEnd = \(\) => \{[\s\S]{0,900}?restart\(/.test(speechSrcRaw),
+    '手动模式：emit 只在用户点停止后可达；原生 onend / 临时抖动一律续听（最多 40 次无进展）')
+  assert(!/recorder\.stop\(\)/.test(speechSrcRaw.split('/* 手动模式：没有 maxMs 自动停止定时器')[0].split('export async function startRecording')[1] || ''),
+    '手动模式：MediaRecorder 移除了 maxMs 到点自动 stop 的定时器')
+  assert(/onResult[\s\S]{0,80}progress|restartsWithoutProgress = 0/.test(speechSrcRaw),
+    '手动模式：续听期间有新文字就重置「无进展」计数，长句停顿不被误判为结束')
   assert(/const from = Math\.max\(0, e\.resultIndex \?\? 0\)/.test(speechSrcRaw)
     && /i < from \+ e\.results\.length/.test(speechSrcRaw),
     'resultIndex off-by-one 修复：按「起始下标 + 本批数量」遍历，续段文字不再被吞')
   const hookSrcRaw = fs.readFileSync(path.join(root, 'src/hooks/useVoiceDictation.ts'), 'utf8')
-  assert(/timeoutMs:\s*\d{5,}/.test(hookSrcRaw) && /silenceMs:\s*[3-9]\d{3,}/.test(hookSrcRaw),
-    '鱼塘语音输入显式声明长录音参数，不吃 15s/1.8s 的短默认值')
+  assert(hookSrcRaw.includes('录音中，请读完点击麦克风停止'),
+    '鱼塘语音输入提示改为手动模式文案（录音中请读完点击停止）')
   assert(composeTranscript(['Hello', undefined], new Map([[1, 'world']])) === 'Hello world',
     'final 与 interim 按 resultIndex 合并成完整句子')
   assert(composeTranscript([], new Map([[0, 'Only interim text']])) === 'Only interim text'
@@ -622,12 +625,17 @@ try {
       resolve(payload)
     }
     const handle = startListening({
-      accent: 'en-US', retries: opts.retries ?? 1, silenceMs: opts.silenceMs ?? 0, timeoutMs: 3000,
+      accent: 'en-US', retries: opts.retries ?? 1,
+      /* 手动模式：silenceMs / timeoutMs 已是兼容字段，不产生自动停止 */
       onResult: (t, meta) => finish({ type: 'result', t, meta }),
       onError: (code) => finish({ type: 'error', code }),
       onEnd: () => {}, onStatus: () => {},
     })
     if (opts.afterStart && handle) opts.afterStart(handle)
+    /* 手动模式：模拟用户点「停止」才结算；autoStopMs 默认 60ms */
+    if (handle && opts.autoStop !== false) {
+      setTimeout(() => { try { handle.stop() } catch { /* noop */ } }, opts.autoStopMs ?? 60)
+    }
     guard = setTimeout(() => finish({ type: 'timeout' }), 4000)
   })
 
@@ -677,6 +685,7 @@ try {
     abort() { this.abortCalls++ }
   }
   const flushed = await listenOnce(FlushOnStopRecognition, {
+    autoStop: false,
     afterStart: (h) => setTimeout(() => h.stop(), 40),
   })
   assert(flushed.type === 'result' && flushed.t.includes('my friend') && !flushed.meta.partial,
@@ -684,14 +693,26 @@ try {
   assert(FlushOnStopRecognition.last.stopCalls === 1 && FlushOnStopRecognition.last.abortCalls === 0,
     '手动停止绝不调用 abort()（旧版正是在这里丢字）')
 
-  class NetworkFlakyRecognition {
-    constructor() { NetworkFlakyRecognition.instances = (NetworkFlakyRecognition.instances || 0) + 1 }
-    start() { setTimeout(() => { this.onerror?.({ error: 'network' }); this.onend?.() }, 15) }
+  class NoSpeechFlakyRecognition {
+    constructor() { NoSpeechFlakyRecognition.instances = (NoSpeechFlakyRecognition.instances || 0) + 1 }
+    start() { setTimeout(() => { this.onerror?.({ error: 'no-speech' }); this.onend?.() }, 15) }
     stop() {} abort() {}
   }
-  const flaky = await listenOnce(NetworkFlakyRecognition, { retries: 1 })
-  assert(flaky.type === 'error' && flaky.code === 'network' && NetworkFlakyRecognition.instances === 2,
-    'network 偶发失败自动重建识别器重试一次后，才给出明确错误')
+  NoSpeechFlakyRecognition.instances = 0
+  let flakyEarlyEmit = false
+  w.SpeechRecognition = NoSpeechFlakyRecognition
+  const flakyHandle = startListening({
+    accent: 'en-US',
+    onResult: () => { flakyEarlyEmit = true },
+    onError: () => {}, onEnd: () => {}, onStatus: () => {},
+  })
+  await tick(50) // 已经历多轮 no-speech + 原生 onend，用户仍未点停止
+  const flakyInstances = NoSpeechFlakyRecognition.instances
+  flakyHandle?.stop()
+  await tick(20)
+  delete w.SpeechRecognition
+  assert(!flakyEarlyEmit && flakyInstances > 1,
+    '手动模式：no-speech 抖动 + 原生 onend 只触发续听，用户没点停止绝不提前提交（实例数=' + flakyInstances + '）')
 
   class ErrorAfterInterimRecognition {
     start() {
@@ -705,7 +726,7 @@ try {
   }
   const kept = await listenOnce(ErrorAfterInterimRecognition, { retries: 0 })
   assert(kept.type === 'result' && kept.t.includes('keep this text') && kept.meta.partial,
-    '服务中途报错但已有字幕时，优先保住文字而不是报失败')
+    '手动模式：中途报错前听到的字幕被保留，用户点停止后照常交付（含未确认片段）')
 
   assert(bodyText().includes('把一段英文'), '首页渲染成功')
   assert(bodyText().includes('当前目标 IELTS'), '首页显示当前雅思目标档位')
@@ -881,7 +902,8 @@ try {
   assert(bodyText().includes('本轮反馈'), '中文输入也有折叠反馈')
 
   // ---- 语音修复验收：无识别 / 识别成功 / 权限拒绝 / 服务失败 ----
-  const micBtn = () => document.querySelector('button[aria-label="语音转文字 / 录音转写"]')
+  const micBtn = () => document.querySelector('button[aria-label="点击开始录音"]')
+    || document.querySelector('button[aria-label="录音中，点击停止并提交"]')
   assert(micBtn(), '对话页麦克风按钮存在')
   fire(micBtn())
   await tick(140)
@@ -893,17 +915,24 @@ try {
     start() {
       setTimeout(() => {
         this.onresult?.({ resultIndex: 0, results: [{ isFinal: true, length: 1, 0: { transcript: 'I would like some fresh apples.' } }] })
-        this.onend?.()
+        // 手动模式：不主动 onend，模拟浏览器持续录音直到用户停止
       }, 25)
     }
-    stop() {}
+    stop() { setTimeout(() => this.onend?.(), 5) }
     abort() {}
   }
   w.SpeechRecognition = FakeRecognition
   fire(micBtn())
   await tick(200)
+  assert(!document.querySelector('textarea').value.includes('I would like some fresh apples.'),
+    '手动模式：识别到文字但用户没点停止，绝不提前写入输入框')
+  assert(bodyText().includes('录音中，请读完点击麦克风停止'),
+    '手动模式：录音中明确提示用户读完再点停止')
+  /* 模拟用户点「停止」：此时才提交并写入输入框 */
+  fire(document.querySelector('button[aria-label="录音中，点击停止并提交"]'))
+  await tick(220)
   assert(document.querySelector('textarea').value.includes('I would like some fresh apples.'),
-    'SpeechRecognition 结果自动写入输入框')
+    '手动模式：用户点停止后识别结果才写入输入框')
   assert(bodyText().includes('已转成文字'), '听写完成后给出成功反馈')
 
   const fakeError = (code) => class {
@@ -1804,8 +1833,9 @@ try {
       'S2.5 提供「再听一遍 / 慢速播放 / 只听目标词」三个听音按钮')
       assert(ra0.includes('演示模式') && ra0.includes('静态波形占位'),
         'Mock 模式有不易误解的「演示模式」角标与静态波形占位')
-      assert(ra0.includes('请求麦克风权限') && ra0.includes('不会上传') && ra0.includes('最长 10 秒'),
-        '麦克风权限请求有前置说明：用途、时长、音频不上传')
+      assert(ra0.includes('请求麦克风权限') && ra0.includes('不会上传')
+        && ra0.includes('读完由你点') && ra0.includes('不会自动结束'),
+      '麦克风权限前置说明：用途、音频不上传、读完由用户点停止（手动模式）')
       assert(ra0.includes(entry.examples[0]),
         '默认朗读目标是含目标词的完整例句，不是孤立单词')
       assert([...document.querySelectorAll('[data-testid="read-aloud"] span.underline')]
@@ -1834,7 +1864,7 @@ try {
       assert((JSON.parse(w.localStorage.getItem('lingua_profile') || '{}').xp || 0) === xpBeforeSkip,
         '跳过跟读不扣 XP、不阻塞 S3')
     } else {
-      click(/开始跟读/, `第 ${i + 1} 个词开始演示跟读`)
+      click(/点击开始录音/, `第 ${i + 1} 个词开始演示跟读`)
       await tick(1720)
       const ra1 = readAloudText()
       assert(/读到了 \d+\/\d+ 个词/.test(ra1) && ra1.includes('演示模式结果'),
@@ -5892,6 +5922,10 @@ window.__mountLab = (el, entry) => {
       '形象组件渲染本地立绘 WebP（BASE_URL 相对路径，兼容子目录部署），失败有 emoji 降级不白屏')
     assert(FF_IDS_LOCAL.every((n) => fs.existsSync(path.join(root, 'public/fatfish', n + '.webp'))),
       '6 张立体立绘均已落盘 public/fatfish/*.webp')
+    assert(FF_IDS_LOCAL.every((n) => fs.readFileSync(path.join(root, 'public/fatfish', n + '.webp')).includes('ALPH')),
+      '6 张立绘都是带 alpha 通道的 WebP：背景板已抠除，能直接当悬浮宠物压在卡片上')
+    assert(ffCssSrc.includes('.dp-pet .dp-avatar img') && ffCssSrc.includes('drop-shadow'),
+      '去背景后的立绘补了投影：宠物有落地感，不会像剪贴画')
     const imgBytes = FF_IDS_LOCAL.reduce((n, id) => n + fs.statSync(path.join(root, 'public/fatfish', id + '.webp')).size, 0)
     assert(imgBytes > 6 * 20 * 1024 && imgBytes < 6 * 120 * 1024,
       '6 张立绘已压到合理体积（WebP 总计 0.12–0.72MB），PWA 预缓存不爆包')
@@ -6002,14 +6036,88 @@ window.__mountLab = (el, entry) => {
     assert(ffDictateSrc.includes('onTranscript') && !ffDictateSrc.includes('send(')
       && ffPageSrc.includes('onTranscript: (spoken) => setText'),
       '识别/转写文字只交给调用方追加进输入框，hook 自身绝不自动发送')
+    assert((ffDictateSrc.match(/recordingRef\.current = null/g) || []).length >= 3
+      && (ffDictateSrc.match(/listeningRef\.current = null/g) || []).length >= 2,
+    '每轮结束 / 失败都清空 handle：不会让下次点击误入「停止上一轮」分支而毫无反应')
     assert(ffPageSrc.includes('data-testid="freetalk-mic"') && ffPageSrc.includes('dictation.toggle')
       && ffPageSrc.includes('dictation.listening') && ffPageSrc.includes('dictation.recording')
       && ffPageSrc.includes('sending || summarizing || dictation.listening || dictation.recording'),
       '输入台有麦克风按钮；听写/录音中禁用发送，杜绝半句话发出去')
     assert(ffPageSrc.includes('freetalk-dictation-interim') && ffPageSrc.includes('aria-live="polite"')
-      && ffPageSrc.includes('dictation.interim') && ffPageSrc.includes('正在录音')
+      && ffPageSrc.includes('dictation.interim') && ffPageSrc.includes('录音中')
+      && ffPageSrc.includes('读完点麦克风停止')
       && ffPageSrc.includes('dictation.cancel()'),
-      '实时字幕与录音态用 aria-live 播报、标注未确认需核对；手动输入与切角色都会取消采集')
+      '手动模式：实时字幕用 aria-live 播报、标注「录音中·读完点停止」；手动输入与切角色都会取消采集')
+
+    /* ---------- 移动端兼容：手势内开麦 / UA 分诊 / 明确弹窗 ---------- */
+    const mvSrc = fs.readFileSync(path.join(root, 'src/lib/mobileVoice.ts'), 'utf8')
+    const vsdSrc = fs.readFileSync(path.join(root, 'src/components/VoiceSupportDialog.tsx'), 'utf8')
+    const ddMobileSrc = fs.readFileSync(path.join(root, 'src/pages/Dialogue.tsx'), 'utf8')
+    assert(mvSrc.includes('MicroMessenger') && mvSrc.includes('iPad|iPhone|iPod')
+      && mvSrc.includes('/Android/i') && mvSrc.includes('maxTouchPoints')
+      && mvSrc.includes('isSecureContext'),
+    '统一环境检测覆盖 iOS / Android / 微信 / iPadOS 伪装 Mac，并把 HTTPS 安全上下文当硬门槛')
+    assert(ffDictateSrc.includes('mobile.preferDirectRecording')
+      && ffDictateSrc.includes("'mobile-direct'")
+      && ffDictateSrc.indexOf('mobile.preferDirectRecording') < ffDictateSrc.indexOf('startListening({')
+      && ddMobileSrc.includes('mobile.preferDirectRecording')
+      && ddMobileSrc.includes("'移动端已切到本地录音转写：'"),
+    '移动端在点击的同步分支里直接开麦，早于任何 startListening 云端识别（不再等 onError 丢手势）')
+    assert(mvSrc.includes('当前浏览器不支持语音，请使用文字输入')
+      && ffDictateSrc.includes("title: '语音暂不可用'")
+      && ffPageSrc.includes('VoiceSupportDialog') && ddMobileSrc.includes('VoiceSupportDialog')
+      && vsdSrc.includes('role="alertdialog"') && vsdSrc.includes('data-testid="voice-support-dialog"'),
+    'API 缺失 / 权限被拒时弹 alertdialog，明确提示「当前浏览器不支持语音，请使用文字输入」')
+    assert(fs.readFileSync(path.join(root, 'src/lib/speech.ts'), 'utf8').includes('unsupportedVoiceMessage(env)')
+      && ffCssSrc.includes('.voice-notice-backdrop')
+      && ffCssSrc.includes('prefers-reduced-motion: reduce'),
+    '麦克风自检复用同一套中文诊断；弹窗只动 transform/opacity 且尊重减少动态效果')
+    const MV = await loadModule('src/lib/mobileVoice.ts', 'mobile-voice')
+    /* Node 22 自带只读 navigator：globalThis.navigator 与 w.navigator 可能不是同一个对象，
+       被测模块用哪个取决于 esbuild 打包路径，两个都要改。 */
+    const navTargets = [...new Set([w.navigator, globalThis.navigator, globalThis.window?.navigator].filter(Boolean))]
+    const windowTargets = [...new Set([w, globalThis.window].filter(Boolean))]
+    const savedUA = navTargets.map((n) => Object.getOwnPropertyDescriptor(n, 'userAgent'))
+    const savedMD = navTargets.map((n) => Object.getOwnPropertyDescriptor(n, 'mediaDevices'))
+    const savedMR = windowTargets.map((win) => Object.getOwnPropertyDescriptor(win, 'MediaRecorder'))
+    const setUA = (value) => {
+      for (const n of navTargets) {
+        try { Object.defineProperty(n, 'userAgent', { configurable: true, value }) } catch {}
+      }
+    }
+    for (const n of navTargets) {
+      Object.defineProperty(n, 'mediaDevices', {
+        configurable: true,
+        value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) },
+      })
+    }
+    for (const win of windowTargets) {
+      Object.defineProperty(win, 'MediaRecorder', { configurable: true, value: class {
+        static isTypeSupported() { return true }
+      } })
+    }
+    try {
+      setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148')
+      const iosEnv = MV.detectVoiceEnvironment()
+      assert(iosEnv.device === 'ios' && iosEnv.secureContext && iosEnv.canUseMicrophone
+        && iosEnv.preferDirectRecording && iosEnv.hint.includes('iOS Safari'),
+      '运行时：iPhone UA 被识别为 ios 且优先直录，不再先启动系统识别引擎')
+      setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) MicroMessenger/8.0')
+      const wxEnv = MV.detectVoiceEnvironment()
+      assert(wxEnv.device === 'wechat'
+        && MV.unsupportedVoiceMessage(wxEnv).includes('当前浏览器不支持语音，请使用文字输入'),
+      '运行时：微信内置浏览器被单独识别，并给出可照着做的文字输入提示')
+    } finally {
+      navTargets.forEach((n, i) => {
+        if (savedUA[i]) Object.defineProperty(n, 'userAgent', savedUA[i])
+        if (savedMD[i]) Object.defineProperty(n, 'mediaDevices', savedMD[i])
+        else { try { delete n.mediaDevices } catch {} }
+      })
+      windowTargets.forEach((win, i) => {
+        if (savedMR[i]) Object.defineProperty(win, 'MediaRecorder', savedMR[i])
+        else { try { delete win.MediaRecorder } catch {} }
+      })
+    }
 
     /* ---------- 内置录音转写（Android 录音降级的服务端通道） ---------- */
     const trFnSrc = fs.readFileSync(path.join(root, 'netlify/functions/transcribe.ts'), 'utf8')
@@ -6045,9 +6153,36 @@ window.__mountLab = (el, entry) => {
       && nfServer.includes("app.all(['/.netlify/functions/transcribe']")
       && nfServer.includes("limit: '12mb'") && nfServer.includes('LLM_ASR_URL'),
       '本地联调台挂同一条转写链路：放大 JSON 限额容纳 base64，--mock 模式自带假 ASR 上游')
-    assert(ffDictateSrc.includes('timeoutMs: 180000') && ffDictateSrc.includes('silenceMs: 4000')
+    assert(ffDictateSrc.includes('录音中，请读完点击麦克风停止')
+      && !/silenceMs:\s*4000/.test(ffDictateSrc.replace(/\/\*[\s\S]*?\*\//g, ''))
       && trFnSrc.includes('UPSTREAM_TIMEOUT_MS = 9_000'),
-      '端到端时长边界自洽：浏览器识别 180s / 静音 4s / 录音 60s / 服务端转写 9s 且上限 120s')
+    '手动模式：鱼塘提示「录音中请读完点停止」，不再依赖静音自动收尾；服务端转写仍有 9s 超时兜底')
+
+    /* ---------- 手动模式：三处麦克风 UI 两态 + 波形动画 ---------- */
+    const pronLabSrc = fs.readFileSync(path.join(root, 'src/components/PronunciationLab.tsx'), 'utf8')
+    const readAloudSrc = fs.readFileSync(path.join(root, 'src/components/WordReadAloud.tsx'), 'utf8')
+    const diagSrc = fs.readFileSync(path.join(root, 'src/components/VoiceDiagnostics.tsx'), 'utf8')
+    const dialogueSrc = fs.readFileSync(path.join(root, 'src/pages/Dialogue.tsx'), 'utf8')
+
+    assert(ffPageSrc.includes('录音中，请读完点击麦克风停止')
+      && ffPageSrc.includes('ff-mic-live') && ffPageSrc.includes('aria-label={dictation.recording || dictation.listening')
+      && ffCssSrc.includes('@keyframes ff-mic-pulse'),
+    '手动模式·鱼塘：麦克风两态（开始/停止）+ 录音中波形脉冲动画， aria-label 明确')
+    assert(dialogueSrc.includes('录音中，请读完点击麦克风停止')
+      && dialogueSrc.includes('pulse-ring relative !border-coral-500'),
+    '手动模式·主对话页：录音中按钮变红 + 脉冲动画，提示读完点停止')
+    assert(pronLabSrc.includes('录音中 · 读完点击停止') && pronLabSrc.includes('pron-mic-live')
+      && !/silenceMs:\s*1500/.test(pronLabSrc) && !/timeoutMs:\s*RECORD_TIMEOUT_MS/.test(pronLabSrc),
+    '手动模式·Word Lab 发音评测：停止态变红跳动，移除 1.5s 静音 / 8s 超时自动收尾')
+    assert(readAloudSrc.includes('录音中 · 读完点击停止') && readAloudSrc.includes('pron-mic-live')
+      && readAloudSrc.includes('已录 ${secondsLeft} 秒') && !/还剩 \$\{secondsLeft\}/.test(readAloudSrc),
+    '手动模式·S2.5 跟读：倒计时改已录正计时，无时长硬顶，停止态波形动画')
+    assert(diagSrc.includes('请读完再点一次') && ffCssSrc.includes('@keyframes pron-mic-pulse')
+      && ffCssSrc.includes('.pron-mic-live { animation: none; }'),
+    '手动模式·诊断组件与 CSS：全部改手动文案，波形动画遵守 prefers-reduced-motion')
+    assert(!/RECORD_TIMEOUT_MS|maxRecordingMs/.test(readAloudSrc)
+      && /setTimeout[\s\S]{0,120}manualStop/.test(readAloudSrc) === false,
+    '手动模式·跟读组件：不再渲染自动停止时长，服务层无 setTimeout 自动结算')
 
     /* ---------- Desktop Pet：悬浮布局 + 四态状态机 + 纯 CSS 动画 ---------- */
     assert(ffTypesSrc.includes("export type DesktopPetState = 'idle' | 'thinking' | 'speaking' | 'happy'")
@@ -6390,8 +6525,8 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
 
       /* [语音输入] 完整链路：点麦克风 → 假识别器出字 → 文字进输入框但不自动发送 */
       const micBtn = document.querySelector('[data-testid="freetalk-mic"]')
-      assert(!!micBtn && micBtn.getAttribute('aria-label')?.includes('语音输入'),
-        '输入台有语音输入麦克风按钮（无障碍标签齐全）')
+      assert(!!micBtn && (micBtn.getAttribute('aria-label')?.includes('录音') || micBtn.getAttribute('aria-label')?.includes('停止')),
+        '手动模式：输入台麦克风按钮明确标注「开始/停止录音」（无障碍标签齐全）')
       class FishRecognition {
         constructor() {
           this.lang = ''; this.continuous = false; this.interimResults = false; this.maxAlternatives = 1
@@ -6399,16 +6534,15 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
         }
         start() {
           FishRecognition.lastLang = this.lang
-          /* 先给一段 interim 实时字幕，再给 final，验证两级状态 */
+          /* 先给一段 interim 实时字幕，再给 final；手动模式下不主动 onend */
           setTimeout(() => this.onresult?.({ resultIndex: 0,
             results: [{ isFinal: false, length: 1, 0: { transcript: 'fancy some' } }] }), 15)
           setTimeout(() => {
             this.onresult?.({ resultIndex: 0,
               results: [{ isFinal: true, length: 1, 0: { transcript: 'fancy some tea' } }] })
-            this.onend?.()
           }, 40)
         }
-        stop() {}
+        stop() { setTimeout(() => this.onend?.(), 5) }
         abort() {}
       }
       const bubblesBeforeDictate = document.querySelectorAll('[data-testid="freetalk-page"] .animate-in').length
@@ -6419,9 +6553,15 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
       assert(!!document.querySelector('[data-testid="freetalk-dictation-interim"]'),
         '听写中出现实时字幕条（aria-live 播报）')
       await tick(160)
+      const beforeStopInput = document.querySelector('[data-testid="freetalk-input"]')
+      assert(!beforeStopInput.value.includes('fancy some tea'),
+        '手动模式：识别到文字但用户没点停止，不写入输入框')
+      /* 模拟用户点「停止」：此时文字才进输入框 */
+      fire(document.querySelector('[data-testid="freetalk-mic"]'))
+      await tick(120)
       const afterDictate = document.querySelector('[data-testid="freetalk-input"]')
       assert(afterDictate.value.includes('fancy some tea'),
-        '识别出的文字自动追加进输入框')
+        '手动模式：用户点停止后识别文字才追加进输入框')
       assert(!!document.querySelector('[data-testid="freetalk-dictation-note"]')
         && bodyText().includes('已转成文字'),
       '听写完成给出「已转成文字，确认后发送」的核对提示')
@@ -6508,10 +6648,10 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
           const bubblesBeforeFallback = document.querySelectorAll('[data-testid="freetalk-page"] .animate-in').length
           const textBeforeFallback = document.querySelector('[data-testid="freetalk-input"]').value
           fire(document.querySelector('[data-testid="freetalk-mic"]'))
-          await tick(100)
-          assert(bodyText().includes('正在录音')
-            && document.querySelector('[data-testid="freetalk-mic"]')?.getAttribute('aria-label') === '停止录音并转文字',
-          '运行时：识别器静默 onend 后自动切本地录音，麦克风同一按钮变成「停止并转文字」')
+          await tick(160)
+          assert(bodyText().includes('录音中')
+            && document.querySelector('[data-testid="freetalk-mic"]')?.getAttribute('aria-label') === '录音中，点击停止并提交',
+          '运行时：识别服务静默失败后自动切本地录音，麦克风变成「录音中·点击停止并提交」')
           assert(FakeMediaRecorder.instances.length === 1 && FakeMediaRecorder.instances[0].state === 'recording',
           '运行时：降级真的启动了 MediaRecorder，而不是只改了一句提示文案')
 
@@ -6617,12 +6757,35 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
       const summaryBox = document.querySelector('[data-testid="freetalk-summary"]')
       assert(!!summaryBox && bodyText().includes('聊天感受') && bodyText().includes('发音建议'),
         '「结束并总结」产出 { feeling, pronunciation } 两段人设化反馈')
+
+      /* 运行时：微信内置浏览器点麦克风 → 明确弹窗，而不是「点了没反应」 */
+      const wxUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) MicroMessenger/8.0'
+      const savedUA2 = navTargets.map((n) => Object.getOwnPropertyDescriptor(n, 'userAgent'))
+      setUA(wxUA)
+      try {
+        const micEl = document.querySelector('[data-testid="freetalk-mic"]')
+        fire(micEl)
+        await tick(80)
+        const dialog = document.querySelector('[data-testid="voice-support-dialog"]')
+        const msg = document.querySelector('[data-testid="voice-notice-message"]')
+        assert(!!dialog && dialog.getAttribute('role') === 'alertdialog'
+          && !!msg && msg.textContent.includes('当前浏览器不支持语音，请使用文字输入'),
+        `运行时：不支持的浏览器点麦克风弹出 alertdialog（dialog=${!!dialog}, msg=${msg?.textContent?.slice(0, 60) || '无'}）`)
+        fire(document.querySelector('[data-testid="voice-notice-ok"]'))
+        await tick(40)
+        assert(!document.querySelector('[data-testid="voice-support-dialog"]'),
+          '运行时：确认后弹窗关闭，输入区仍可正常使用')
+      } finally {
+        navTargets.forEach((n, i) => {
+          if (savedUA2[i]) Object.defineProperty(n, 'userAgent', savedUA2[i])
+        })
+      }
     }
   }
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

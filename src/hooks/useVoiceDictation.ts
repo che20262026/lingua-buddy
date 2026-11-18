@@ -24,6 +24,8 @@ import {
 } from '../lib/speech'
 import { transcribeAudioBlob, type TranscribeFailure } from '../services/transcribeAudio'
 import type { FatFishAccent } from '../freetalkTypes'
+import type { VoiceNotice } from '../components/VoiceSupportDialog'
+import { detectVoiceEnvironment, unsupportedVoiceMessage } from '../lib/mobileVoice'
 
 export interface VoiceDictationOptions {
   /** 识别语言：与朗读口音同源（en-US / en-GB / en-AU） */
@@ -47,14 +49,19 @@ export interface VoiceDictationApi {
   note: string
   /** 当前环境是否有任一语音输入能力 */
   supported: boolean
+  /** 不支持 / 权限被拒时必须弹窗说明的文案 */
+  notice: VoiceNotice | null
+  /** 关闭弹窗 */
+  dismissNotice: () => void
   /** 点一次：开始 / 停止并出字 */
   toggle: () => void
   /** 强制取消（切角色 / 清空 / 卸载）：丢弃结果并释放麦克风 */
   cancel: () => void
 }
 
-/** 识别服务「不可用、该切录音」的错误码（国内 Android 高频命中前三个） */
-const FALLBACK_CODES = ['network', 'service-not-allowed', 'not-allowed', 'audio-capture', 'language-not-supported']
+/** 识别服务「不可用、该切录音」的错误码（国内 Android 高频命中前三个）
+ *  no-speech：静默 onend 连续多次无结果，说明服务根本连不上，同样切录音 */
+const FALLBACK_CODES = ['network', 'service-not-allowed', 'not-allowed', 'audio-capture', 'language-not-supported', 'no-speech']
 
 function failureNote(f: TranscribeFailure): string {
   switch (f.reason) {
@@ -72,6 +79,7 @@ export function useVoiceDictation(options: VoiceDictationOptions): VoiceDictatio
   const [recording, setRecording] = useState(false)
   const [interim, setInterim] = useState('')
   const [note, setNote] = useState('')
+  const [notice, setNotice] = useState<VoiceNotice | null>(null)
   const listeningRef = useRef<ListeningHandle | null>(null)
   const recordingRef = useRef<RecordingHandle | null>(null)
   /** 每次开麦领一个 epoch：卸载 / 切角色 / 重开后，旧回调一律作废 */
@@ -100,7 +108,7 @@ export function useVoiceDictation(options: VoiceDictationOptions): VoiceDictatio
 
   /**
    * 降级通道：本地录音 → WAV → 服务端 DeepSeek ASR。
-   * 识别失败时调用；录音最长 60 秒（ASR 硬顶 120s，留一半余量）。
+   * 手动模式：录音一直开到用户点停止，没有时长硬顶（ASR 超长会在服务端降级）。
    */
   const startFallbackRecording = useCallback(async (epoch: number, reason: string) => {
     if (epoch !== epochRef.current || fellBackRef.current) return
@@ -108,18 +116,30 @@ export function useVoiceDictation(options: VoiceDictationOptions): VoiceDictatio
     listeningRef.current = null
     setListening(false)
     setInterim('')
-    setNote('浏览器语音服务连不上，已切到本地录音转写… 说完点一下麦克风结束。')
+    setNotice(null)
+    const direct = reason === 'mobile-direct'
+    setNote(direct
+      ? '录音中，请读完点击麦克风停止，文字会转进输入框。'
+      : '浏览器语音服务连不上，已切到本地录音…录音中，请读完点击麦克风停止。')
 
     const handle = await startRecording({
-      maxMs: 60_000,
       onError: (message) => {
         if (epoch !== epochRef.current) return
+        /* 必须先清掉 handle：否则下次点击会误判成「停止上一轮录音」而直接返回 */
+        recordingRef.current = null
         setRecording(false)
         setNote(`${message} 也可以直接用文字输入。`)
+        /* 权限被拒 / 不支持：不能只写一行小字，必须弹窗说清还能打字 */
+        setNotice({
+          title: '麦克风没能启动',
+          message: unsupportedVoiceMessage(detectVoiceEnvironment()) + ` ${message}`,
+          showNewTab: detectVoiceEnvironment().inIframe,
+        })
         optionsRef.current.onSettled?.()
       },
       onDone: async (result) => {
         if (epoch !== epochRef.current) return
+        recordingRef.current = null
         setRecording(false)
         setNote('录音完成，正在转成文字…')
         const res = await transcribeAudioBlob(result.blob)
@@ -142,6 +162,11 @@ export function useVoiceDictation(options: VoiceDictationOptions): VoiceDictatio
       void reason
     } else {
       setNote('录音未能启动，请检查麦克风权限，或直接用文字输入。')
+      setNotice({
+        title: '麦克风没能启动',
+        message: unsupportedVoiceMessage(detectVoiceEnvironment()) + ' 请检查麦克风权限，或直接用文字输入。',
+        showNewTab: detectVoiceEnvironment().inIframe,
+      })
       optionsRef.current.onSettled?.()
     }
   }, [])
@@ -159,31 +184,57 @@ export function useVoiceDictation(options: VoiceDictationOptions): VoiceDictatio
     }
 
     const env = describeSpeechSupport()
+    const mobile = detectVoiceEnvironment()
     optionsRef.current.onBeforeListen?.()
     const epoch = ++epochRef.current
     fellBackRef.current = false
+    setNotice(null)
 
-    /* 没有识别器、或连录音都不支持：如实告知 */
-    if (!env.recognition && !env.recording) {
+    /* 非安全上下文 / 两条路都没有：直接弹窗，绝不进入「假装在听」状态。
+       注意：桌面只有 SpeechRecognition、没有 MediaRecorder 时仍可识别，不能一刀切。 */
+    if (!mobile.secureContext || (!mobile.canUseMicrophone && !env.recognition && !env.recording)) {
       epochRef.current += 1
-      setNote(env.hint || '当前环境不支持语音，请用文字输入继续。')
+      setListening(false)
+      setRecording(false)
+      setInterim('')
+      const message = unsupportedVoiceMessage(mobile)
+      setNote(message)
+      setNotice({
+        title: '语音暂不可用',
+        message,
+        showNewTab: mobile.inIframe || !mobile.secureContext,
+      })
+      optionsRef.current.onSettled?.()
+      return
+    }
+
+    /* 【移动端关键修复】点击的同步上下文里直接开麦：
+       iOS / Android WebView 要求 getUserMedia 与 AudioContext 在用户手势内初始化。
+       旧逻辑先启动云端识别，等 onError 再异步开麦 → 手势已丢失 → 表现为「点了没反应」。 */
+    if (mobile.preferDirectRecording) {
+      setRecording(true)
+      setListening(false)
+      setInterim('')
+      void startFallbackRecording(epoch, 'mobile-direct')
+      return
+    }
+
+    /* 桌面没有识别器时同样直接走录音，不浪费一次必败的识别启动 */
+    if (!env.recognition) {
+      setRecording(true)
+      setListening(false)
+      setInterim('')
+      void startFallbackRecording(epoch, 'unsupported')
       return
     }
 
     setListening(true)
     setInterim('')
-    setNote('正在听… 说完停顿一下自动出字，再点一次麦克风也能停止。')
-
-    /* 无识别器：直接走录音降级 */
-    if (!env.recognition) {
-      void startFallbackRecording(epoch, 'unsupported')
-      return
-    }
+    setNote('录音中，请读完点击麦克风停止；中途停顿没关系，不会自动结束。')
 
     const handle = startListening({
       accent: optionsRef.current.accent,
-      timeoutMs: 180000,
-      silenceMs: 4000,
+      /* 手动模式：不传 silenceMs / timeoutMs，静音与时长都不再自动收尾 */
       onInterim: (t) => { if (epoch === epochRef.current) setInterim(t) },
       onStatus: (m) => { if (epoch === epochRef.current) setNote(m) },
       onResult: (t, meta) => {
@@ -209,6 +260,11 @@ export function useVoiceDictation(options: VoiceDictationOptions): VoiceDictatio
         setListening(false)
         setInterim('')
         setNote(info.message)
+        setNotice({
+          title: '语音识别没能启动',
+          message: `${info.message} ${unsupportedVoiceMessage(detectVoiceEnvironment())}`,
+          showNewTab: detectVoiceEnvironment().inIframe,
+        })
         optionsRef.current.onSettled?.()
       },
       onEnd: () => {
@@ -256,6 +312,8 @@ export function useVoiceDictation(options: VoiceDictationOptions): VoiceDictatio
     interim,
     note,
     supported: envSupportsAny(),
+    notice,
+    dismissNotice: () => setNotice(null),
     toggle,
     cancel,
   }

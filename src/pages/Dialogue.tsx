@@ -6,6 +6,9 @@ import { TypewriterText } from '../components/TypewriterText'
 /** [对话 UI 状态] 思考骨架屏 + 失败友好卡片（纯 UI，不触碰请求链路） */
 import { ThinkingSkeleton } from '../components/ThinkingSkeleton'
 import { AiErrorCard } from '../components/AiErrorCard'
+import { VoiceSupportDialog, type VoiceNotice } from '../components/VoiceSupportDialog'
+/** [移动端兼容] UA / 安全上下文 / 手势内直接开麦的统一判断 */
+import { detectVoiceEnvironment, unsupportedVoiceMessage } from '../lib/mobileVoice'
 import {
   clearAiError, codeFromStatus, getAiError, observeChatHttpStatus, reportAiError, subscribeAiError,
   type AiErrorState,
@@ -86,6 +89,8 @@ export function Dialogue() {
   const [needNewTab, setNeedNewTab] = useState(false)
   /** 自动转文字失败时把原因摊开，并给出重试 / 录音转写 / 补写三条路 */
   const [voiceFailure, setVoiceFailure] = useState<{ code: string; message: string } | null>(null)
+  /** [移动端兼容] 不支持 / 权限被拒时弹窗，用户必须看到「还能打字」 */
+  const [voiceNotice, setVoiceNotice] = useState<VoiceNotice | null>(null)
   const [showManualTranscript, setShowManualTranscript] = useState(false)
   const [manualDraft, setManualDraft] = useState('')
   const [confirmEnd, setConfirmEnd] = useState(false)
@@ -496,7 +501,7 @@ export function Dialogue() {
     }
 
     const epoch = ++epochRef.current
-    setVoiceNote('正在听… 说完停顿一下，文字会自动出现；再点一次麦克风也能停止。')
+    setVoiceNote('录音中，请读完点击麦克风停止；中途停顿不会自动结束。')
     setVoiceMode('listening')
     const handle = startListening({
       accent: data.settings.accent,
@@ -637,7 +642,7 @@ export function Dialogue() {
     }
     captureRef.current = handle
     setVoiceMode('recording')
-    setVoiceNote(`${reason} 录音中… 说完点一下麦克风，文字和发音点评会一起出来。`)
+    setVoiceNote(`${reason} 录音中，请读完点击麦克风停止，再提交转写和发音点评。`)
   }
 
   /** 补写：把系统输入法听写 / 手动打出的英文送进本轮回答，并补进语音记录 */
@@ -679,7 +684,7 @@ export function Dialogue() {
    * 麦克风状态机：听写 → （失败）明确诊断 + 重试/录音转写/补写 → 文本输入。
    * 环境在点击时重新判断，避免「页面打开时可用、后来被权限策略拦掉」的误判。
    */
-  const toggleVoice = async () => {
+  const toggleVoice = () => {
     if (voiceMode === 'recording') {
       captureRef.current?.stop()
       captureRef.current = null
@@ -701,7 +706,33 @@ export function Dialogue() {
     setVoiceNote(wasSpeaking ? '已停止朗读，可以开始说话。' : '')
     setVoiceInterim('')
     setNeedNewTab(false)
-    await beginListening()
+    setVoiceNotice(null)
+
+    /* 【移动端关键修复】所有决定都在点击的同步上下文里完成：
+       不能先 await 再 getUserMedia，否则 iOS / WebView 判定手势已过期。 */
+    const mobile = detectVoiceEnvironment()
+    const envHere = describeSpeechSupport()
+    if (!mobile.secureContext || (!mobile.canUseMicrophone && !envHere.recognition && !envHere.recording)) {
+      const message = unsupportedVoiceMessage(mobile)
+      setVoiceMode('idle')
+      setVoiceBusy(false)
+      setVoiceFailure({ code: 'unsupported', message })
+      setVoiceNote(message)
+      setNeedNewTab(mobile.inIframe || !mobile.secureContext)
+      setVoiceNotice({
+        title: '语音暂不可用',
+        message,
+        showNewTab: mobile.inIframe || !mobile.secureContext,
+      })
+      return
+    }
+    if (mobile.preferDirectRecording) {
+      /* iOS / Android / 微信 / TWA：直接本地录音 + 服务端转写，绕开云端识别 */
+      void beginCapture('移动端已切到本地录音转写：', { useBrowserRecognition: false })
+      return
+    }
+
+    void beginListening()
   }
 
   /** 主动发音评测：绕开听写，直接录一段音频做声学分析（顺带尝试出字） */
@@ -987,8 +1018,8 @@ export function Dialogue() {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-bold text-ink">
-                  {voiceMode === 'listening' ? '🎙 正在听你说话…'
-                    : voiceMode === 'recording' ? '⏺ 录音 + 转写中…'
+                  {voiceMode === 'listening' ? '🎙 录音中，请读完点击麦克风停止…'
+                    : voiceMode === 'recording' ? '⏺ 录音中，请读完点击麦克风停止…'
                       : voiceBusy ? '正在准备麦克风…' : '语音助手'}
                 </p>
                 {voiceInterim && <p className="en-text mt-1 text-xs font-semibold text-brand-600">实时：{voiceInterim}</p>}
@@ -1103,7 +1134,7 @@ export function Dialogue() {
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-1.5">
             <IconButton icon="mic"
-              label={voiceMode === 'recording' ? '停止录音并转文字' : voiceMode === 'listening' ? '停止听写并出字' : '语音转文字 / 录音转写'}
+              label={voiceMode === 'recording' || voiceMode === 'listening' ? '录音中，点击停止并提交' : '点击开始录音'}
               active={voiceMode !== 'idle'} onClick={() => { void toggleVoice() }}
               className={voiceMode === 'recording' ? 'pulse-ring relative !border-coral-500 !bg-coral-500 !text-white'
                 : voiceMode === 'listening' ? 'pulse-ring relative' : ''} />
@@ -1120,10 +1151,10 @@ export function Dialogue() {
             <IconButton icon="flag" label="结束对话并生成报告" onClick={() => setConfirmEnd(true)} />
           </div>
           <span className="text-right text-[10px] leading-tight text-muted">
-            {voiceMode === 'listening' ? '说完自动出字 · 再点麦克风可停止'
-              : voiceMode === 'recording' ? '点麦克风结束录音并出字'
-                : support.recognition ? '语音转文字 / 录音转写 / 文本均可'
-                  : support.recording ? '录音转写 / 文本可用' : '语音不可用 · 文本输入已就绪'}
+            {voiceMode === 'listening' || voiceMode === 'recording'
+              ? '录音中，请读完点击麦克风停止 · 停顿不会自动结束'
+              : support.recognition ? '点麦克风开始录音，读完再点一次停止'
+                : support.recording ? '录音转写 / 文本可用' : '语音不可用 · 文本输入已就绪'}
             <br />🎧 = 发音评测（语速/停顿/语调）
           </span>
         </div>
@@ -1132,6 +1163,11 @@ export function Dialogue() {
       <Modal open={confirmEnd} title="现在就收尾吗？" danger confirmText="结束并生成报告" cancelText="再聊两轮"
         desc="教练会立刻整理会话报告，把新词与错题写进复习队列。已经说过的内容都会保留。"
         onClose={() => setConfirmEnd(false)} onConfirm={() => { setConfirmEnd(false); finalize(session) }} />
+
+      {/* [移动端兼容] 语音不可用 / 权限被拒：明确弹窗并给出文字输入出路 */}
+      {voiceNotice && (
+        <VoiceSupportDialog notice={voiceNotice} onClose={() => setVoiceNotice(null)} />
+      )}
     </div>
   )
 }
