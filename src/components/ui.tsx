@@ -29,6 +29,8 @@ const PATHS: Record<string, ReactNode> = {
   target: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.2" /></>,
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5.5l3.5 2" /></>,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.6h.01" /></>,
+  /** [新增] 搜索：文化信息流圆角搜索框用 */
+  search: <><circle cx="10.8" cy="10.8" r="6.6" /><path d="m15.6 15.6 4.6 4.6" /></>,
   /** [新增] 账号：云同步登录横幅与登录弹窗用 */
   user: <><circle cx="12" cy="8" r="3.6" /><path d="M4.8 20a7.4 7.4 0 0 1 14.4 0" /></>,
   /** [新增] 云端：已同步状态用 */

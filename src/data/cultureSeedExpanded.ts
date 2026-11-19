@@ -1,15 +1,18 @@
 /* ================================================================
- * 第 1 层：结构化种子库（39 条，离线可用，零 API 调用）
+ * 第 1 层：结构化种子库（45 条扩展 + 5 条旧手配 = 50 条，离线可用，零 API 调用）
  *
  * ★ 真实性约束：本文件里的每一个 videoId 都来自公开可验证的官方页面，
  *   绝不自造 11 位 ID。来源见 playlistRegistrySeed.ts 的 verifiedUrl：
- *     - VOA  21 条：@VOALearningEnglish 官方频道播放列表页 / 官方频道简介 /
+ *     - VOA  26 条：@VOALearningEnglish 官方频道播放列表页 / 官方频道简介 /
  *                   EduBrights 镜像的 VOA 官方视频描述（ytid<ID>）
- *     - TED-Ed 9 条：Open Culture 引用的官方播放列表、TED 官方视频页、
- *                   官方 bit.ly 短链；其中 2 条只有播放列表、没有单条 ID，
- *                   显式 videoId:'' + idStatus:'playlist-only'
+ *     - TED-Ed 11 条：Open Culture 引用的官方播放列表、TED 官方视频页、
+ *                    官方 bit.ly 短链；其中 4 条只有播放列表、没有单条 ID，
+ *                    显式 videoId:'' + idStatus:'playlist-only'
  *     - British Council 5 条：@BritishCouncilEnglish/playlists 官方播放列表页
  *     - Pexels / Pixabay 4 条：原创教学占位，不托管任何第三方视频文件
+ *
+ *   [储量补强] 末 6 条全部为 playlist-only：只固定到已验证官方播放列表，
+ *   videoId 显式留空，待 playlistItems.list 同步后自动补全。绝不为了凑数编 ID。
  *
  *   标题为 LinguaBuddy 原创「学习卡」命名，不代表平台原始标题（titleNote 说明）；
  *   短引用、文化主题、中文梗概全部为原创示例注释，不是字幕抄录。
@@ -385,9 +388,31 @@ const ROWS: Row[] = [
     ex: [['It dates back to ...', '它可以追溯到……'], ['The building was originally used for ...', '这栋楼最初用于……'], ['It is still in use today', '它今天仍在使用']], th: ['建筑与时间线', '用途的变化'] },
   { id: 'pixabay-nature', s: 'pixabay', vid: '', t: 'A rainy forest floor（Mock 原创占位）', tz: '雨林地表 · 原创占位', topic: 'science-nature', cefr: 'B1', dur: 120, emb: false,
     ex: [['As a result, ...', '结果是……'], ['One reason is that ...', '一个原因是……'], ['It is not yet clear whether ...', '目前还不清楚是否……']], th: ['观察自然现象', '解释里的不确定性'] },
+
+  // ---------- [储量补强 6 条] 全部只固定到已验证官方播放列表，videoId 显式留空 ----------
+  // 铁律：没有可验证的单条 ID 就绝不编造 11 位字符；同步 playlistItems.list 后再补全。
+  // VOA 4 条（公有领域 · 压舱石占比 26/50=52%）+ TED-Ed 2 条（补最薄的 arts-media 4→6）。
+  { id: 'voa-science-extra', s: 'voa', vid: '', pl: P.podcast, t: 'Learning English Podcast · 科学话题合集', tz: '播客合集 · 科学解释', topic: 'science-nature', cefr: 'B2', dur: 600, emb: false,
+    ex: [['One explanation is that ...', '一种解释是……'], ['The evidence points to ...', '证据指向……'], ['We should be careful about ...', '我们对……要谨慎']], th: ['科学解释的因果链', '证据与推断的区别'],
+    titleNote: '只固定到 VOA 官方播客播放列表，尚未获得可验证的单条 videoId；同步后自动补全。' },
+  { id: 'voa-nature-extra', s: 'voa', vid: '', pl: P.parks, t: "America's National Parks · 自然解说合集", tz: '国家公园 · 自然词汇', topic: 'science-nature', cefr: 'B2', dur: 480, emb: false,
+    ex: [['It is home to ...', '这里是……的栖息地'], ['The landscape changes as ...', '地貌随……变化'], ['What struck me was ...', '让我印象深刻的是……']], th: ['自然景观的具体描述', '把观察与评价分开'],
+    titleNote: '只固定到 VOA 官方国家公园播放列表，尚未获得可验证的单条 videoId；同步后自动补全。' },
+  { id: 'voa-history-extra', s: 'voa', vid: '', pl: P.ushistory, t: 'US History · 慢速历史合集', tz: '历史讲解 · 人物与年代', topic: 'history-landmarks', cefr: 'B2', dur: 480, emb: false,
+    ex: [['It dates back to ...', '这可以追溯到……'], ['At the time, ...', '当时……'], ['Looking back, ...', '回头看……']], th: ['时间线的表达', '历史评价的留有余地'],
+    titleNote: '只固定到 VOA 官方历史播放列表，尚未获得可验证的单条 videoId；同步后自动补全。' },
+  { id: 'voa-news-extra', s: 'voa', vid: '', pl: P.news, t: 'Learning English News · 慢速新闻合集', tz: '慢速新闻 · 职场与社会', topic: 'work-social', cefr: 'B2', dur: 420, emb: false,
+    ex: [['According to the report, ...', '据报告……'], ['The plan is expected to ...', '该计划预计会……'], ['Critics argue that ...', '批评者认为……']], th: ['转述与归因', '平衡对立观点'],
+    titleNote: '只固定到 VOA 官方新闻播放列表，尚未获得可验证的单条 videoId；同步后自动补全。' },
+  { id: 'ted-ed-art-extra', s: 'ted-ed', vid: '', pl: P.poem, t: 'TED-Ed · 诗歌与文学赏析合集', tz: '文学赏析 · 意象与读法', topic: 'arts-media', cefr: 'C1', dur: 360, emb: false,
+    ex: [['The image suggests ...', '这个意象暗示……'], ['Another reading is ...', '另一种解读是……'], ['What stays with me is ...', '让我挥之不去的是……']], th: ['文学意象的解读', '保留另一种读法'],
+    titleNote: '只固定到 TED-Ed 官方诗歌播放列表，尚未获得可验证的单条 videoId；同步后自动补全。' },
+  { id: 'ted-ed-media-extra', s: 'ted-ed', vid: '', pl: P.myths, t: 'TED-Ed · 神话与当代媒体合集', tz: '神话改写 · 媒体素养', topic: 'arts-media', cefr: 'B2', dur: 360, emb: false,
+    ex: [['The story was retold as ...', '这个故事被改写为……'], ['In the original version, ...', '在原版里……'], ['It raises the question of ...', '这引出了……的问题']], th: ['经典叙事的当代改写', '比较不同版本'],
+    titleNote: '只固定到 TED-Ed 官方神话播放列表，尚未获得可验证的单条 videoId；同步后自动补全。' },
 ]
 
-/** 39 条结构化种子条目：全部 seed:true / acquiredVia:'seed' */
+/** 45 条结构化种子条目：全部 seed:true / acquiredVia:'seed' */
 export const EXPANDED_SEED_VIDEOS: LibraryVideoEntry[] = ROWS.map((r) => makeCultureVideo({
   id: r.id,
   source: r.s,

@@ -328,6 +328,17 @@ try {
   assert(cultureVideos.every((v) => v.licenseNote && v.attribution && /^https?:\/\//.test(v.watchUrl)
     && v.summaryZh && v.embedMode), '每条视频标注来源、许可、署名、梗概与嵌入状态')
 
+  /* ---------- [储量补强] 末 6 条只挂官方播放列表、零编造 ID ---------- */
+  const reserveAdded = cultureVideos.slice(-6)
+  assert(cultureVideos.length === 50 && reserveAdded.length === 6,
+    '储量补强到 50 条（44 条基线 + 6 条 playlist-only），已达冒烟上限')
+  assert(reserveAdded.every((v) => v.videoId === '' && v.idStatus === 'playlist-only'
+    && /^https:\/\/www\.youtube\.com\/playlist\?list=/.test(v.officialUrl || '')),
+  '新增条目 videoId 显式留空并挂已验证官方播放列表，绝不编造 11 位 ID')
+  const reserveTopics = reserveAdded.reduce((a, v) => { a[v.topic] = (a[v.topic] || 0) + 1; return a }, {})
+  assert((reserveTopics['arts-media'] || 0) >= 2 && (reserveTopics['science-nature'] || 0) >= 1,
+    '补强优先给最薄主题：arts-media 4→6、science-nature 6→8')
+
   /* ============ 三层储量体系：种子库结构化验收（验收标准 1） ============ */
   const voaCount = cultureVideos.filter((v) => v.source === 'voa').length
   assert(voaCount / cultureVideos.length >= 0.4,
@@ -1196,13 +1207,52 @@ try {
   assert(document.querySelectorAll('input[placeholder*="本地索引"]').length >= 1,
     '本地关键词筛选不联网、不调用搜索接口')
 
+  /* [信息流改造] 抽屉收纳后，主题筛选断言聚焦「信息流容器」本体：
+     抽屉里的 LevelContentList 是独立的按等级推荐区，不属于主题筛选的信息流 */
+  const feedText = () => [...document.querySelectorAll(
+    '[data-testid="culture-feed-hero"], [data-testid="culture-feed-videos"], [data-testid="culture-brief-list"]')]
+    .map((el) => el.textContent || '').join(' ')
   click(/节日与习俗/, '按主题在本地索引里筛选')
   await tick(150)
-  assert(bodyText().includes('筛选结果') && !bodyText().includes('Try something new for 30 days'),
-    '主题筛选只过滤本地索引，不发起实时搜索')
+  assert(feedText().includes('筛选结果') || bodyText().includes('筛选结果'),
+    '主题筛选产出「筛选结果」视图，不发起实时搜索')
+  assert(!feedText().includes('Try something new for 30 days'),
+    '主题筛选只过滤信息流里的本地索引条目（抽屉的按等级推荐区不参与）')
   click(/全部/, '恢复全部视频')
   await tick(150)
-  assert(bodyText().includes('Try something new for 30 days'), '清除主题筛选后列表恢复')
+  assert(feedText().includes('Try something new for 30 days'), '清除主题筛选后信息流恢复')
+
+  /* ---------- [信息流改造] 结构 / 配色 / 层级 / 跳转的永久护栏 ---------- */
+  const cfSrc = fs.readFileSync(path.join(root, 'src/pages/CultureHub.tsx'), 'utf8')
+  const cfCss = fs.readFileSync(path.join(root, 'src/index.css'), 'utf8')
+  assert(cfSrc.includes('data-testid="culture-feed-search"')
+    && cfSrc.includes('data-testid="culture-feed-tabs"')
+    && cfSrc.includes('data-testid="culture-feed-hero"')
+    && cfSrc.includes('data-testid="culture-brief-list"')
+    && cfSrc.includes('data-testid="culture-feed-videos"'),
+  '文化主页是信息流骨架：圆角搜索 + 横滑 Tab + 快讯 + 大图头条 + 视频混排')
+  assert(/FEED_TABS[\s\S]{0,500}推荐[\s\S]{0,300}要闻[\s\S]{0,300}影视[\s\S]{0,300}文化研讨/.test(cfSrc)
+    && cfSrc.includes('aria-selected'),
+  '分类 Tab 为新闻式栏目且用 aria-selected 标记选中态')
+  assert(cfSrc.includes('data-testid="culture-settings-toggle"')
+    && cfSrc.includes('data-testid="culture-settings-drawer"')
+    && /cf-drawer-closed[\s\S]{0,200}visibility:\s*hidden/.test(cfCss),
+  '设置 / 统计 / 特定分类过滤收进右上角齿轮抽屉（CSS 折叠，DOM 保留不破坏旧契约）')
+  assert(cfCss.includes('background: #3b6bf4') && cfCss.includes('color: #2a51d8')
+    && !/background:\s*#[0-9a-f]{6}.*\/\*\s*参考图蓝/.test(cfCss),
+  '信息流沿用既有 brand 主色（#3b6bf4），未照搬参考图的蓝色')
+  assert(/\.cf-hero-veil\s*\{[^}]*rgba\(12, 18, 38/.test(cfCss)
+    && cfSrc.includes('文化推荐') && cfSrc.includes('cf-corner'),
+  '大图头条有黑色渐变蒙版 + 左上角「文化推荐」角标 + 压图白字')
+  assert(cfSrc.includes("navigate('watch', { videoId })")
+    && cfSrc.includes('const openVideo = (videoId: string)'),
+  '所有信息流卡片走唯一跳转出口 → 原观看页（播放器 / 观后讨论 / 字幕点击链路不变）')
+  assert(/\.cf-feed-block\s*\{[^}]*z-index:\s*0/.test(cfCss)
+    && /\.cf-sticky-head\s*\{[^}]*z-index:\s*1/.test(cfCss),
+  '信息流内容层级 z-0/1，绝不占用悬浮电子宠物 z-30+ 的层')
+  assert(/@media \(prefers-reduced-motion: reduce\)[\s\S]{0,400}\.cf-feed-block/.test(cfCss)
+    && /\.cf-play-badge[\s\S]{0,200}transform:\s*scale/.test(cfCss),
+  '信息流动效只动 transform/opacity，且在减少动态效果下全部关闭')
 
   /* ============ Word Lab 词场：数据契约 / 7 库分片种子（验收 1/2） ============ */
   const wlTypes = await loadModule('src/wordLabTypes.ts', 'wl-types')
@@ -1767,10 +1817,14 @@ try {
     '首页新增词场指路牌（第四个学习模式）')
   clickExact('词场', '底部导航进入词场')
   await tick(200)
-  assert(bodyText().includes('今日词场') && bodyText().includes('五步学习法')
-    && bodyText().includes('S5') && bodyText().includes('艾宾浩斯阶梯'),
-  '词场首页展示今日额度、五步学习法与阶梯说明')
-  assert(bodyText().includes('10min→1d→3d→7d→15d→30d'), '词场首页写明艾宾浩斯 6 级阶梯')
+  // [首屏 UI 精简] 双卡并列后：今日词场 / 当前词库 同屏可见；五步学习法声明按需求移出首页（隐藏渲染，文案仍保留在源码常量）
+  assert(bodyText().includes('今日词场') && bodyText().includes('当前词库')
+    && bodyText().includes('还没选词库'),
+  '词场首页双卡并列展示今日额度与当前词库')
+  // 注：空词库态文案里合法含有「五步学习法」字样，故用声明块独有锚点判定其已移出首屏
+  assert(!bodyText().includes('每个新词都走一遍完整闭环')
+    && !bodyText().includes('10min→1d→3d→7d→15d→30d'),
+  '五步学习法声明已移出词场首屏（S0–S5 流程逻辑不受影响）')
   click(/去挑词库/, '首页进入词库选择页')
   await tick(180)
   for (const name of ['初中 3500', '高中 5000', '四级核心', '六级核心', '雅思 5.5', '雅思 6.5', '雅思 7.5']) {
@@ -1976,6 +2030,9 @@ try {
     '词场结算沿用既有 awardXp，XP 写入原档案')
   assert(bodyText().includes('已学 5 个新词'), '结算后词场首页额度环同步更新')
 
+  // [首屏 UI 精简] 易错本入口收进「更多」下拉：先展开再进入，跳转逻辑与原先一致
+  click(/更多/, '展开首屏「更多」入口')
+  await tick(80)
   click(/打开易错本/, '进入词场易错本')
   await tick(190)
   assert(bodyText().includes('猜错词义') && bodyText().includes('拼写易错')
@@ -6833,7 +6890,7 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：44 条种子·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

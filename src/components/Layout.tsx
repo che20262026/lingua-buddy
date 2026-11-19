@@ -134,7 +134,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </aside>
       </div>
 
-      {/* 底部导航 */}
+      {/* 底部导航：轻盈纯线条风格（参考图2），激活态用品牌主色高亮，不再用实心蓝底 */}
       <nav className="fixed bottom-3 left-1/2 z-40 w-[min(96vw,600px)] -translate-x-1/2 pb-[env(safe-area-inset-bottom)]">
         <div className="glass flex items-center justify-around overflow-x-auto rounded-3xl border border-white/80 px-2 py-1.5 shadow-float">
           {NAV.map((item) => {
@@ -146,10 +146,13 @@ export function Layout({ children }: { children: ReactNode }) {
               (item.view === 'growth' && GROWTH_VIEWS.includes(view))
             return (
               <button key={item.view} type="button" onClick={() => navigate(item.view)}
-                className={cn('relative flex min-w-[46px] flex-col items-center gap-0.5 rounded-2xl px-1.5 py-2 text-[11px] font-bold transition sm:min-w-[58px] sm:px-2.5',
-                  active ? 'bg-brand-500 text-white shadow-soft' : 'text-muted hover:bg-white/70 hover:text-brand-600')}>
-                <Icon name={item.icon} size={19} />
+                className={cn('relative flex min-h-[54px] min-w-[46px] flex-col items-center justify-center gap-1 rounded-2xl px-1.5 py-2 text-[10px] font-bold transition sm:min-w-[58px] sm:px-2.5',
+                  active ? 'text-brand-600' : 'text-muted hover:text-brand-500')}>
+                <Icon name={item.icon} size={21} className={active ? 'stroke-[2.1]' : ''} />
                 {item.label}
+                {/* 激活指示点：品牌主色小横条，替代原来的实心填充块 */}
+                <span className={cn('absolute bottom-1 h-1 w-5 rounded-full bg-brand-500 transition-opacity duration-200',
+                  active ? 'opacity-100' : 'opacity-0')} />
                 {item.view === 'review' && dueReviews.length > 0 && (
                   <span className="absolute right-1.5 top-1 h-2 w-2 rounded-full bg-coral-500" />
                 )}

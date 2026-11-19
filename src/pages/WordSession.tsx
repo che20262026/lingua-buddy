@@ -391,91 +391,87 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
   const pct = (draft.index + (draft.step === 'guess' ? 0.1 : draft.step === 'verify' ? 0.45 : 0.75)) / draft.words.length
 
   return (
-    <div className="animate-in space-y-4">
-      {/* 进度条：没有返回上一步按钮 */}
-      <div className="card p-3.5">
+    <div className="wl-stage animate-in">
+      {/* 进度条：没有返回上一步按钮 —— 融入渐层的轻量毛玻璃条 */}
+      <div className="wl-glass mx-auto max-w-[600px] rounded-2xl p-3.5">
         <div className="flex items-center justify-between gap-2">
           <Chip tone="brand">{stepNo} · {stepName}</Chip>
-          <span className="text-[11px] font-bold text-muted">
+          <span className="text-[11px] font-bold text-brand-600">
             {draft.index + 1} / {draft.words.length} · {meta.emblem} {meta.name}
           </span>
         </div>
-        <ProgressBar value={pct} className="mt-2.5" />
+        <ProgressBar value={pct} className="mt-2.5 !bg-brand-100/70" />
       </div>
 
       {/* S1/S2 词卡显示单词；S3 书写阶段换成「回忆提示卡」——不出现任何词形 */}
       {draft.step === 'spell' ? (
-        <Card>
+        <div className="wl-glass mx-auto mt-5 max-w-[600px] rounded-[28px] px-5 py-7">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[10px] font-black tracking-[0.16em] text-brand-600">只给提示，不显示单词</p>
-              <p className="mt-1 font-display text-lg font-black text-ink">
+              <p className="mt-2 font-display text-2xl font-black leading-snug text-ink">
                 {maskTargetWord(entry.meaningZh, entry.word)}
               </p>
-              <p className="en-text mt-1 text-xs italic leading-relaxed text-muted">
+              <p className="en-text mt-2 text-sm italic leading-relaxed text-muted">
                 {maskTargetWord(entry.meaningEn, entry.word)}
               </p>
             </div>
             <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
-              aria-label="听发音提示" className="rounded-xl bg-brand-50 p-2 text-brand-600 hover:bg-brand-100">
-              <Icon name="speaker" size={18} />
+              aria-label="听发音提示" className="rounded-xl bg-brand-50 p-2.5 text-brand-600 hover:bg-brand-100">
+              <Icon name="speaker" size={20} />
             </button>
           </div>
           {data.settings.wordShowImage && media && (
-            <div className="mt-3 overflow-hidden rounded-2xl border border-white/80 bg-white/60">
+            <div className="mt-4 overflow-hidden rounded-2xl border border-white/80 bg-white/60">
               <img src={imageSrc(entry, media, true)} alt={maskTargetWord(entry.imageAlt, entry.word)}
                 className="h-28 w-full object-contain" />
             </div>
           )}
-          <p className="mt-2 text-[10px] leading-relaxed text-muted">
+          <p className="mt-3 text-[10px] leading-relaxed text-muted">
             书写时已隐藏词形、音标、例句与搭配；只靠释义、配图和发音回忆，写完才判分。
           </p>
-        </Card>
+        </div>
       ) : (
-        <Card>
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <p className="en-text font-display text-3xl font-black text-ink">{entry.word}</p>
-                {/* [AI 发音评测] 命中易错词库时优先标记，引导用户去练发音 */}
-                {challengerFor(entry.word) && <Chip tone="coral">易错词</Chip>}
-              </div>
-              <p className="mt-1 text-xs text-muted">{entry.phonetic} · {entry.pos} · CEFR {entry.cefr}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
-                aria-label="朗读单词" className="rounded-xl bg-brand-50 p-2 text-brand-600 hover:bg-brand-100">
-                <Icon name="speaker" size={18} />
-              </button>
-              {/* [AI 发音评测] 展开发音练习面板：闭环之外的辅助功能，不推进 S1→S5 */}
-              <button type="button" onClick={() => setPronOpen((v) => !v)}
-                aria-expanded={pronOpen}
-                aria-label="发音练习"
-                className={`rounded-xl px-2.5 py-2 text-[11px] font-bold transition ${
-                  pronOpen ? 'bg-brand-500 text-white' : 'bg-brand-50 text-brand-600 hover:bg-brand-100'}`}>
-                <Icon name="mic" size={14} />发音练习
-              </button>
-            </div>
+        <div className="mx-auto mt-5 max-w-[600px] py-6 text-center">
+          <div className="flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
+            <p className="en-text wl-word font-black text-ink">{entry.word}</p>
+            {/* [AI 发音评测] 命中易错词库时优先标记，引导用户去练发音 */}
+            {challengerFor(entry.word) && <Chip tone="coral">易错词</Chip>}
+          </div>
+          <p className="mt-3 text-xs font-medium tracking-wide text-muted">{entry.phonetic} · {entry.pos} · CEFR {entry.cefr}</p>
+          <div className="mt-5 flex items-center justify-center gap-2">
+            <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
+              aria-label="朗读单词" className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl bg-brand-50 px-4 text-sm font-bold text-brand-600 transition hover:bg-brand-100">
+              <Icon name="speaker" size={18} />朗读
+            </button>
+            {/* [AI 发音评测] 展开发音练习面板：闭环之外的辅助功能，不推进 S1→S5 */}
+            <button type="button" onClick={() => setPronOpen((v) => !v)}
+              aria-expanded={pronOpen}
+              aria-label="发音练习"
+              className={`inline-flex min-h-[44px] items-center gap-2 rounded-2xl px-4 text-sm font-bold transition ${
+                pronOpen ? 'bg-brand-500 text-white' : 'bg-white/70 text-brand-600 hover:bg-white'}`}>
+              <Icon name="mic" size={15} />发音练习
+            </button>
           </div>
           {pronOpen && (
-            <div className="mt-3 border-t border-brand-50 pt-3">
+            <div className="wl-glass mx-auto mt-5 max-w-[520px] rounded-2xl p-4 text-left">
               <PronunciationLab entry={entry} defaultAccent={data.settings.accent} />
             </div>
           )}
-        </Card>
+        </div>
       )}
 
       {/* S1 猜义：4 选 1 或自由输入；必须提交 */}
       {draft.step === 'guess' && (
-        <Card>
+        <div className="wl-glass mx-auto mt-4 max-w-[600px] rounded-[28px] p-5">
           <SectionTitle title="先自己猜一次" subtitle="猜错也没关系——猜过之后再揭晓，记得更牢。没有跳过按钮。" />
           <div className="mb-3 flex gap-1.5">
             <button type="button" onClick={() => setGuessMode('choice')}
-              className={`flex-1 rounded-xl px-2 py-2 text-[11px] font-bold ${guessMode === 'choice' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-muted'}`}>
+              className={`min-h-[44px] flex-1 rounded-xl px-2 text-xs font-bold transition ${guessMode === 'choice' ? 'bg-brand-500 text-white shadow-sm' : 'bg-white/70 text-muted'}`}>
               4 选 1
             </button>
             <button type="button" onClick={() => setGuessMode('free')}
-              className={`flex-1 rounded-xl px-2 py-2 text-[11px] font-bold ${guessMode === 'free' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-muted'}`}>
+              className={`min-h-[44px] flex-1 rounded-xl px-2 text-xs font-bold transition ${guessMode === 'free' ? 'bg-brand-500 text-white shadow-sm' : 'bg-white/70 text-muted'}`}>
               自己写中文意思
             </button>
           </div>
@@ -483,34 +479,34 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
             <div className="grid gap-2 sm:grid-cols-2">
               {choices.map((c) => (
                 <button key={c} type="button" onClick={() => setChoice(c)}
-                  className={`rounded-2xl border p-3 text-left text-xs font-bold transition ${choice === c ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-white/80 bg-white/70 text-ink hover:border-brand-200'}`}>
+                  className={`wl-choice min-h-[52px] rounded-2xl border p-3 text-left text-xs font-bold transition ${choice === c ? 'border-brand-400 bg-brand-50 text-brand-700 shadow-sm' : 'border-white/90 bg-white/80 text-ink hover:border-brand-200'}`}>
                   {c}
                 </button>
               ))}
             </div>
           ) : (
-            <input className="field" value={freeGuess} onChange={(e) => setFreeGuess(e.target.value)}
+            <input className="field !bg-white/85" value={freeGuess} onChange={(e) => setFreeGuess(e.target.value)}
               placeholder="写下你猜的中文意思（≤20 字也行）" />
           )}
           <button type="button" onClick={submitGuess}
             disabled={guessMode === 'choice' ? !choice : !freeGuess.trim()}
-            className="btn-primary mt-3 w-full !py-2.5 disabled:opacity-40">
-            提交猜测<Icon name="right" size={14} />
+            className="btn-primary mt-4 w-full !py-3 disabled:opacity-40">
+            提交猜测<Icon name="right" size={15} />
           </button>
           <p className="mt-2 text-[10px] leading-relaxed text-muted">提交后才进入验证环节，本场不能返回上一步。</p>
-        </Card>
+        </div>
       )}
 
       {/* S2 验证：配图（先无标注）→ 英文标注 + 例句 + 释义 */}
       {draft.step === 'verify' && (
-        <Card>
+        <div className="wl-glass mx-auto mt-4 max-w-[600px] rounded-[28px] p-5">
           <SectionTitle title="来验证一下" subtitle="先看图，再点开英文标注，最后对照释义与例句。"
             right={<Chip tone={record.guessCorrect === true ? 'mint' : record.guessCorrect === false ? 'coral' : 'slate'}>
               {record.guessCorrect === true ? '猜对了' : record.guessCorrect === false ? '猜错了' : '自由猜测'}
             </Chip>} />
           {data.settings.wordShowImage && media && (
-            <div className="overflow-hidden rounded-2xl border border-white/80 bg-white/60">
-              <img src={imageSrc(entry, media)} alt={entry.imageAlt} className="h-40 w-full object-contain" />
+            <div className="overflow-hidden rounded-2xl border border-white/90 bg-white/70">
+              <img src={imageSrc(entry, media)} alt={entry.imageAlt} className="h-44 w-full object-contain" />
               {showAnnotation && (
                 <p className="en-text border-t border-brand-50 px-3 py-2 text-[11px] italic leading-relaxed text-muted">
                   {entry.imageAlt}
@@ -520,14 +516,14 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
           )}
           {data.settings.wordShowImage && (
             <button type="button" onClick={() => setShowAnnotation(true)} disabled={showAnnotation}
-              className="btn-ghost mt-2.5 w-full !py-2 !text-[11px] disabled:opacity-50">
+              className="btn-ghost mt-2.5 w-full !py-2.5 !text-[11px] disabled:opacity-50">
               {showAnnotation ? '英文标注已显示' : '显示图片英文标注'}
             </button>
           )}
 
-          <div className="mt-3 rounded-2xl bg-gradient-to-br from-brand-50 to-mint-100/50 p-3.5">
+          <div className="mt-4 rounded-2xl bg-white/80 p-4">
             <p className="text-[10px] font-black tracking-widest text-brand-600">揭晓释义</p>
-            <p className="mt-1 font-display text-lg font-black text-ink">{entry.meaningZh}</p>
+            <p className="mt-1 font-display text-xl font-black text-ink">{entry.meaningZh}</p>
             <p className="en-text mt-1 text-xs italic leading-relaxed text-muted">{entry.meaningEn}</p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {entry.collocations.map((c) => <Chip key={c} tone="mint">{c}</Chip>)}
@@ -545,16 +541,16 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
             <p className="mt-2.5 text-[11px] leading-relaxed text-muted">你刚才的猜测：{record.guess}</p>
           )}
           {/* [S2.5 修改点] 自评按钮只记录「熟不熟」，不再直接跳 S3；跟读完成后由下方组件放行 */}
-          <div className="mt-3 flex gap-2 border-t border-brand-50 pt-3">
+          <div className="mt-4 flex gap-2 border-t border-white/70 pt-4">
             <button type="button" onClick={() => setRecord((r) => ({ ...r, verifiedKnown: false }))}
-              className={`${record.verifiedKnown === false ? 'btn-primary' : 'btn-ghost'} flex-1 !py-2 !text-xs`}>还不熟</button>
+              className={`${record.verifiedKnown === false ? 'btn-primary' : 'btn-ghost'} min-h-[48px] flex-1 !py-2 !text-xs`}>还不熟</button>
             <button type="button" onClick={() => setRecord((r) => ({ ...r, verifiedKnown: true }))}
-              className={`${record.verifiedKnown === true ? 'btn-primary' : 'btn-ghost'} flex-1 !py-2 !text-xs`}>我认识</button>
+              className={`${record.verifiedKnown === true ? 'btn-primary' : 'btn-ghost'} min-h-[48px] flex-1 !py-2 !text-xs`}>我认识</button>
           </div>
           <p className="mt-2 text-[10px] leading-relaxed text-muted">
             先标记一下熟不熟，再往下跟读这句；跟读完成后会出现「去拼写」。
           </p>
-        </Card>
+        </div>
       )}
 
       {/* [S2.5 新增] 跟读区域留在 S2 页面下方，不跳转新页面，图—句—音同屏连贯 */}
@@ -565,46 +561,46 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
 
       {/* S3 拼写：打字逐字母比对 / Canvas 手写自评 */}
       {draft.step === 'spell' && (
-        <Card>
+        <div className="wl-glass mx-auto mt-4 max-w-[600px] rounded-[28px] p-5">
           <SectionTitle title="把单词拼出来" subtitle="书写时不显示单词，凭释义与发音回忆；拼错记进易错本并强制重拼一次。"
             right={<Chip tone="slate">已试 {record.spellingTries} 次</Chip>} />
           <div className="mb-3 flex gap-1.5">
             <button type="button" onClick={() => setHandwritingMode('typing')}
-              className={`flex-1 rounded-xl px-2 py-2 text-[11px] font-bold ${handwritingMode === 'typing' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-muted'}`}>打字拼写</button>
+              className={`min-h-[44px] flex-1 rounded-xl px-2 text-xs font-bold transition ${handwritingMode === 'typing' ? 'bg-brand-500 text-white shadow-sm' : 'bg-white/70 text-muted'}`}>打字拼写</button>
             <button type="button" onClick={() => setHandwritingMode('handwriting')}
-              className={`flex-1 rounded-xl px-2 py-2 text-[11px] font-bold ${handwritingMode === 'handwriting' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-muted'}`}>手写自评</button>
+              className={`min-h-[44px] flex-1 rounded-xl px-2 text-xs font-bold transition ${handwritingMode === 'handwriting' ? 'bg-brand-500 text-white shadow-sm' : 'bg-white/70 text-muted'}`}>手写自评</button>
           </div>
 
           {handwritingMode === 'typing' ? (
             <>
-              <input className="field en-text" value={spellInput} autoComplete="off" spellCheck={false}
+              <input className="field en-text !bg-white/90 !py-4 !text-base" value={spellInput} autoComplete="off" spellCheck={false}
                 onChange={(e) => setSpellInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') submitSpelling() }}
                 placeholder="不提示字母数，凭记忆拼写" />
               {cells && (
-                <div className="mt-3 rounded-2xl bg-white/70 p-3">
+                <div className="mt-3 rounded-2xl bg-white/80 p-3">
                   <p className="text-[10px] font-bold text-muted">逐字母比对（绿色正确 / 红色需修改）</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {cells.map((c, i) => (
-                      <span key={i} className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-1.5 font-mono text-sm font-bold ${c.ok ? 'bg-mint-100 text-emerald-700' : 'bg-coral-100 text-coral-700'}`}>
+                      <span key={i} className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-1.5 font-mono text-sm font-bold ${c.ok ? 'bg-mint-100 text-emerald-700' : 'bg-coral-100 text-coral-700'}`}>
                         {c.ch}
                       </span>
                     ))}
                   </div>
-                  <button type="button" onClick={retrySpelling} className="btn-ghost mt-3 w-full !py-2 !text-xs">
-                    <Icon name="refresh" size={13} />重拼一次
+                  <button type="button" onClick={retrySpelling} className="btn-ghost mt-3 w-full !py-2.5 !text-xs">
+                    <Icon name="refresh" size={14} />重拼一次
                   </button>
                 </div>
               )}
               <button type="button" onClick={submitSpelling} disabled={!spellInput.trim() || !!cells}
-                className="btn-primary mt-3 w-full !py-2.5 disabled:opacity-40">
-                提交拼写<Icon name="right" size={14} />
+                className="btn-primary mt-4 w-full !py-3 disabled:opacity-40">
+                提交拼写<Icon name="right" size={15} />
               </button>
             </>
           ) : (
             <>
-              <canvas ref={canvasRef} width={600} height={160}
-                className="w-full touch-none rounded-2xl border border-brand-100 bg-white" />
+              <canvas ref={canvasRef} width={600} height={180}
+                className="w-full touch-none rounded-2xl border border-brand-100 bg-white/90" />
               <p className="mt-2 text-[10px] leading-relaxed text-muted">
                 用鼠标或手指在上方凭记忆写出刚才那个词，再按自己的判断自评；手写不做 OCR，完全离线，书写过程中不会显示词形。
               </p>
@@ -613,19 +609,19 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
                   setErrors((prev) => [...prev, { word: entry.word, type: 'spelling', detail: '手写自评：再试一次' }])
                   setRecord((r) => ({ ...r, spellingTries: r.spellingTries + 1 }))
                   retrySpelling()
-                }} className="btn-ghost flex-1 !py-2 !text-xs">再试一次</button>
+                }} className="btn-ghost min-h-[48px] flex-1 !py-2 !text-xs">再试一次</button>
                 <button type="button" onClick={() => advance({
                   ...record, spellingTries: record.spellingTries + 1,
                   spellingPassed: true, spellingMode: 'handwriting',
-                })} className="btn-primary flex-1 !py-2 !text-xs">我拼对了<Icon name="check" size={13} /></button>
+                })} className="btn-primary min-h-[48px] flex-1 !py-2 !text-xs">我拼对了<Icon name="check" size={14} /></button>
               </div>
             </>
           )}
           <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
-            className="btn-ghost mt-3 w-full !py-2 !text-[11px]">
-            <Icon name="speaker" size={13} />听发音提示（不显示拼写）
+            className="btn-ghost mt-3 w-full !py-2.5 !text-[11px]">
+            <Icon name="speaker" size={14} />听发音提示（不显示拼写）
           </button>
-        </Card>
+        </div>
       )}
     </div>
   )
