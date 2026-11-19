@@ -19,8 +19,7 @@ const NAV: Array<{ view: View; label: string; icon: IconName }> = [
   { view: 'cultureHub', label: '文化', icon: 'play' },
   { view: 'wordLab', label: '词场', icon: 'sparkles' },
   { view: 'review', label: '复习', icon: 'cards' },
-  { view: 'growth', label: '成长', icon: 'trophy' },
-  { view: 'progress', label: '进度', icon: 'chart' },
+  { view: 'growth', label: '我的成长', icon: 'trophy' },
   { view: 'settings', label: '设置', icon: 'gear' },
 ]
 
@@ -30,8 +29,8 @@ const LITERARY_VIEWS: View[] = ['library', 'bookDetail', 'reader', 'seminar', 'r
 const CULTURE_VIEWS: View[] = ['cultureHub', 'watch', 'postWatch', 'cultureReview']
 /** [新增] 词场的四个视图点亮「词场」标签 */
 const WORD_LAB_VIEWS: View[] = ['wordLab', 'deckPicker', 'wordSession', 'errorBook']
-/** [成长系统] 成长页与成就页都点亮「成长」标签 */
-const GROWTH_VIEWS: View[] = ['growth', 'achievements']
+/** [任务B] 成长合并页点亮「我的成长」标签：成长 / 成就 / 旧进度路径都归入同一项 */
+const GROWTH_VIEWS: View[] = ['growth', 'achievements', 'progress']
 /** [China Learner Track] 资源库两个视图归入「学习」，不新增底部导航项 */
 const CHINA_TRACK_VIEWS: View[] = ['chinaTrack', 'chinaUnit']
 

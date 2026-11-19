@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { isServiceWorkerSupported } from '../pwa/registerSW'
+import { startUpdateChecks } from '../pwa/updateChecker'
 
 /**
  * [PWA] 应用更新提示 —— registerType: 'prompt' 的 UI 半边。
@@ -23,6 +24,8 @@ export function UpdatePrompt() {
   // noop，这里直接不渲染任何提示，避免出现点了没反应的死界面。
   const supported = isServiceWorkerSupported()
   const [updating, setUpdating] = useState(false)
+  /** 会话内「稍后再说」过的版本不再重复弹；下次冷启动 ref 重置可再弹 */
+  const dismissedInSession = useRef(false)
 
   /**
    * useRegisterSW 自己维护 needRefresh / offlineReady 两个状态，
@@ -39,7 +42,20 @@ export function UpdatePrompt() {
     onRegisterError(error) {
       console.warn('[LinguaBuddy] Service Worker 注册失败，应用仍可在线使用：', error)
     },
+    /**
+     * 提示幂等：本会话点过「稍后再说」后，即便再次发现同一新版本也不叠加提示。
+     * 冷启动时 dismissedInSession 重置为 false，提示可再次出现。
+     */
+    onNeedRefresh() {
+      if (dismissedInSession.current) setNeedRefresh(false)
+    },
   })
+
+  /** 挂载主动更新检查（定时 / 回前台 / 恢复网络），卸载即清理，绝不重复注册 SW */
+  useEffect(() => {
+    if (!supported) return
+    return startUpdateChecks()
+  }, [supported])
 
   /** 离线就绪提示只亮 4 秒，随后自动隐去；用插件自身的 setter 收起，不留本地状态 */
   useEffect(() => {
@@ -64,7 +80,10 @@ export function UpdatePrompt() {
           className="btn-primary flex-1 !px-3 !py-2 !text-xs">
           {updating ? '正在更新…' : '发现新版本，点击刷新'}
         </button>
-        <button type="button" data-testid="update-prompt-dismiss" onClick={() => setNeedRefresh(false)}
+        <button type="button" data-testid="update-prompt-dismiss" onClick={() => {
+          dismissedInSession.current = true
+          setNeedRefresh(false)
+        }}
           className="btn-ghost shrink-0 !px-3 !py-2 !text-xs">
           稍后再说
         </button>

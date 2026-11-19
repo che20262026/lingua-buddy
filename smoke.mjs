@@ -849,10 +849,13 @@ try {
     && bodyText().includes('今日复习 XP') && bodyText().includes('每日最多 3 批'),
   '复习页顶部展示今日复习 XP 与每日 3 批上限')
 
-  clickExact('进度', '底部导航进入进度页')
+  clickExact('我的成长', '底部导航进入成长·进度合并页')
   await tick(180)
-  assert(bodyText().includes('冒险路径') && bodyText().includes('成就徽章'), '进度页含路径与成就')
-  assert(bodyText().includes('雅思口语段位路径') && bodyText().includes('四项维度参考分'), '进度页含 Band 4→9 阶梯与维度分')
+  // [任务B] 原「进度」内容并入「趋势」Tab，先切 Tab 再断言（内容逐项保留）
+  clickExact('趋势', '合并页切到趋势 Tab')
+  await tick(120)
+  assert(bodyText().includes('冒险路径') && bodyText().includes('成就徽章'), '合并页趋势含路径与成就')
+  assert(bodyText().includes('雅思口语段位路径') && bodyText().includes('四项维度参考分'), '趋势含 Band 4→9 阶梯与维度分')
 
   clickExact('设置', '底部导航进入设置页')
   await tick(180)
@@ -1011,10 +1014,12 @@ try {
   assert(bodyText().includes('发音练习') && bodyText().includes('去试音并评测'),
     '复习页把语音建议变成发音练习任务')
 
-  clickExact('进度', '进度页查看发音趋势')
+  clickExact('我的成长', '合并页查看发音趋势')
   await tick(180)
+  clickExact('趋势', '切到趋势 Tab 查看发音')
+  await tick(120)
   assert(bodyText().includes('发音表现趋势') && bodyText().includes('下一阶段重点'),
-    '进度页展示发音趋势与下一阶段重点')
+    '趋势 Tab 展示发音趋势与下一阶段重点')
 
   /* ============ 文学长廊 UI 全流程：书架 → 详情 → 三视图 → 词汇 → 批注 → 4 轮研讨 → 回原文 → 进度 ============ */
   clickExact('书架', '底部导航进入书架')
@@ -2446,9 +2451,11 @@ try {
     `验收 1：所有 XP 发放都通过 awardXp()，无其他直接写 growth.xp 的位置（${badWrites.length} 处）`)
 
   /* ---- DOM：成长页 / 成就页 / 设置开关 / XpToast / LevelUpBanner ---- */
-  clickExact('成长', '底部导航「成长」入口与既有入口并列')
+  clickExact('我的成长', '底部导航「我的成长」合并页入口')
   await tick(220)
-  assert(!!document.querySelector('[data-testid="growth-home"]'), '成长页正常挂载')
+  assert(!!document.querySelector('[data-testid="growth-hub"]')
+    && !!document.querySelector('[data-testid="growth-home"]'),
+  '成长·进度合并页正常挂载，默认落在概览 Tab（原成长页内容）')
   assert(bodyText().includes('GROWTH') && bodyText().includes('等级曲线')
     && bodyText().includes('Lv.'), '成长页展示当前等级、等级名与等级公式')
   assert(bodyText().includes('连续活跃') && bodyText().includes('冻结卡')
@@ -2511,7 +2518,7 @@ try {
   await tick(180)
   assert(JSON.parse(w3.localStorage.getItem('lingua_settings')).showHeatmap === false,
     '「显示热力图」开关写入 lingua_settings')
-  clickExact('成长', '关闭热力图后回到成长页')
+  clickExact('我的成长', '关闭热力图后回到合并页概览')
   await tick(200)
   assert(!document.querySelector('[data-testid="growth-heatmap"]')
     && bodyText().includes('热力图已在设置页关闭'),
@@ -2841,7 +2848,7 @@ try {
   assert(JSON.parse(cw.localStorage.getItem('lingua_china_track')).listeningExamEnabled === false,
   '首次启动自动播种 lingua_china_track，默认关闭')
   assert(bodyText().includes('本土应试与真实能力桥接资源库'), '学习页有资源库入口卡，未新增底部导航项')
-  assert(document.querySelectorAll('nav button').length === 8, '底部导航仍是 8 项，资源库归入「学习」')
+  assert(document.querySelectorAll('nav button').length === 7, '底部导航 7 项，成长与进度已合并为「我的成长」')
 
   click(/本土应试与真实能力桥接资源库/, '进入资源库首页')
   await tick(220)

@@ -2,13 +2,7 @@
 
 > 把任意一段英文文本，变成一场可以开口说的角色对话冒险。
 
-一款移动端优先、完全本地可运行的英语学习 Agent 应用：粘贴文本 → 自动分析主题/词汇/语法 → 生成原创角色场景 → 与 AI 多轮对话 → 即时温和反馈 → 会话报告与间隔重复复习。
 
-难度采用 **CEFR × 雅思口语 Band 4.0–9.0 双轨体系**：六档段位按官方四项评分维度（FC / LR / GRA / PR）设计，直接决定 AI 的句长、用词、提示与反馈维度。详见 [第四章](#四雅思口语难度体系band-4090)。
-
-发音练习由 **VoiceAssessmentAgent** 评测：录音经 Web Audio 提取语速、停顿、语调起伏与清晰度，换算成 FC / PR 练习参考分并给出可执行建议，贯穿对话、报告、复习、进度与自检页。详见 [第五章](#五语音评判系统voiceassessmentagent)（明确不冒充官方评分）。
-
-**品牌、UI、角色、文案均为本项目原创**，未使用任何现有英语学习产品的品牌资产、图标、角色或受版权保护素材。项目不内置任何 API Key，默认零后端、零网络依赖。
 
 ---
 
@@ -31,6 +25,7 @@ npm run smoke      # jsdom 端到端冒烟测试（需先 npm run build）
 > 浏览器 ES Module 在 `file://` 协议下受 CORS 限制，`dist/index.html` 请通过 `npm run preview` 或任意静态 HTTP 服务打开；开发时直接用 `npm run dev` 即可。
 
 > 服务默认**只绑定 `127.0.0.1` 本机回环**，不对外暴露端口。确需同一局域网内其他设备访问时，手动执行 `npx vite --host 0.0.0.0 --port 5173`；开放全网卡监听后，安全软件可能再次弹出联网提示（见 [第十二章](#十二杀毒软件误报说明)）。
+
 
 ### 桌面快捷方式（一键启动）
 
@@ -63,6 +58,7 @@ Get-CimInstance Win32_ShortcutFile | Where-Object Name -like '*LinguaBuddy*' | S
 ```
 
 `Target` 应显示 `...\lingua-buddy\start-app.cmd`；若为空，跑 `node make-shortcut.cjs` 重建即可。
+
 
 ### 双击后提示「找不到软件 / 请选择一个应用打开」
 
@@ -265,6 +261,7 @@ lingua-buddy/
 
 ---
 
+
 ## 三、三个内部 Agent
 
 | Agent                                | 文件                             | 输入 → 输出                                                                                                                            | 实现要点                                                                                                                              |
@@ -273,6 +270,7 @@ lingua-buddy/
 | **DialogueDirectorAgent**            | `services/dialogueDirector.ts` | 摘要、场景、角色卡、用户角色、目标词/短语、历史、最新输入、难度 → `DirectorOutput`（reply / translation / feedback / hints / state / end / summary / stageSummary） | 意图识别（提问、建议、赞同、不确定、感谢、结束、陈述）+ 角色口头禅轮换，回复 1-3 句、难度分级、尽量带目标词；规则式温和纠错（常见中式英语、大小写、标点）；中文输入改为英文句型引导；每 3 轮阶段小结；达到轮次或说结束即收尾；AI 在多角色间轮换出演。 |
 | **CoachAgent**                       | `services/coach.ts`            | 对话历史、错误记录、目标词、用户表现、**语音评判记录** → 报告 / 复习任务 / 掌握度 / XP / SRS 队列 / 成就 / 四维度评估                                                         | 覆盖率 40% + 完成度 25% + 准确率 35% 计算掌握度；生成新词、好句、改写、复习清单；间隔重复 `0→1→2→4→7→15→30` 天；6 枚成就自动判定；**有真实录音时用声学分替换文本推算的 PR 占位分**。                |
 | **VoiceAssessmentAgent**（Coach 的语音臂） | `services/voiceAssessor.ts`    | 录音 Blob / 识别文本 + 置信度 + 目标档位 → `VoiceAssessment`（声学特征 / FC·PR 参考分 / 亮点 / 建议 / 波形）                                                   | 纯浏览器 Web Audio：能量分帧、自适应静音阈值、内部停顿、音节峰、高频能量比、自相关基频曲线；按档位理想语速映射分数；**所有纯函数可单测**，详见第五章。                                                |
+
 
 ### 文学研读模块新增的三个 Agent（详见第十三章）
 
@@ -283,6 +281,7 @@ lingua-buddy/
 | **SeminarDirectorAgent**  | `services/seminarDirector.ts`  | 单章文本 + 1–2 句前情 + 主题人物引文卡 + 历史发言 + 最新输入 → `SeminarOutput`                                       | **完全独立**于 `DialogueDirectorAgent`：不扮演角色、不续写、不给标准答案；`level` / `praise` 与现有反馈组件兼容 |
 
 三者都沿用 `setXxx / resetXxx / configureXxx(settings) / mockXxx` 的可替换接口风格；设置页配置自定义端点时与 `generateDialogue()` 一起切换，任一远程失败都自动回退本地 Mock。
+
 
 ### 可替换的 `generateDialogue()` 服务
 
@@ -316,6 +315,7 @@ setDialogueGenerator(async (input) => ({
 
 每一档都定义了：四维度目标、`canDo` 能力描述、本阶段重点、一档之差的表达示范，以及 `dialogue` 生成参数（AI 回复句数、单句词数、用户每轮建议词数、是否用连接词/习语/复合结构、每轮目标词数、建议轮次、纠错强度、XP 系数）。
 
+
 ### 六档总表
 
 | 档  | Band    | 名称      | CEFR | 核心目标        | AI 回复       | 你每轮   | 建议轮次 | 纠错   | XP       |
@@ -328,6 +328,7 @@ setDialogueGenerator(async (input) => ({
 | b9 | 9.0     | ✨ 近母语   | C2   | 毫无准备痕迹      | 3 句 / ~22 词 | ~24 词 | 8    | 细致一些 | ×1.7     |
 
 > 映射为教学用近似对应，非官方换算表；C2 在本应用内以 C1+ 呈现（CEFR 选择器保留到 C1）。
+
 
 ### 三个 Agent 如何消费档位
 
@@ -348,6 +349,7 @@ setDialogueGenerator(async (input) => ({
 ### 评估的诚实边界
 
 发音（PR）在**没有录音**时仍是文本推算的保守占位值；有真实录音时改由第五章的声学特征主导，但浏览器依然测不了音素准确度、重音位置与口音。四项分数均为**练习参考分**，报告页与每张点评卡都标注「不是官方雅思评分」，用于指出下一步练什么，不冒充考官评分。
+
 
 ### 一档之差的表达示范（节选）
 
@@ -393,6 +395,9 @@ MediaRecorder Blob → AudioContext.decodeAudioData → 单声道 PCM
 |   |   |   |
 | - | - | - |
 
+|   |   |   |
+| - | - | - |
+
 - `idealWpm = 100 + 本档每轮目标词数 × 2`（六档约 110–148 wpm）；`pace = 100 − |wpm − idealWpm| × 0.55`。
 - `FC = pace×0.42 + pause×0.30 + continuity×0.28`；`PR = intelligibility×0.40 + clarity×0.24 + intonation×0.21 + stress×0.15`。无音频时分别退化为 `pace×0.6 + 32` 与 `intelligibility×0.55 + 38`。
 - 原始分 → `3.5 + raw/100×5.2`，再经 `normalizeBand()`；**只由 FC / PR 两项换算，不是完整雅思 Band**。
@@ -424,6 +429,7 @@ MediaRecorder Blob → AudioContext.decodeAudioData → 单声道 PCM
 `smoke.mjs` 用 esbuild 把 TS 模块打成临时 ESM 做**纯函数单测**：给 `analyzePcm()` 喂 2 秒含两处静音的合成正弦波，断言波形/曲线点数、时长、语速、清晰度；再验证 `assessVoice()` 的分数区间与目标词命中、仅文本降级、`summarizeVoice()` 与 40 条裁剪；最后用假会话验证 `CoachAgent.buildSessionReport()` 在传入实测记录时替换 PR 占位分。UI 侧验证听写落盘、对话页卡片、报告/复习/进度汇总与刷新持久化。
 
 ---
+
 
 ## 六、数据模型与本地存储
 
@@ -460,6 +466,7 @@ MediaRecorder Blob → AudioContext.decodeAudioData → 单声道 PCM
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------- |
 | **旧 8 个键的键名与语义一字未改**；上面 ★ 4 个、◆ 4 个、▣ 1 个、✦ 6 个与 ✧ 1 个都是纯新增。阅读、研讨与文化视频产生的新词都写回现有 `lingua_review_queue`（沿用 `SRS_INTERVALS`）；词场新词走完艾宾浩斯阶梯后**并入同一套 SM-2 序列**，统一调度输出用 \`source: 'wordlab' | 'reading' | 'video'`区分；XP / 连续天数 / 成就写回`lingua_profile`，新增偏好写回 `lingua_settings\`。 |
 
+
 ### 轻量数据迁移
 
 `src/lib/literaryStorage.ts` 的 `migrateLiteraryData()`、`src/lib/cultureStorage.ts` 的 `migrateCultureData()` 与 `src/lib/wordLabStorage.ts` 的 `migrateWordLabData()` 在 `AppProvider` 初始化、`loadData()` 之前依次各跑一次，**都幂等**：
@@ -475,6 +482,7 @@ MediaRecorder Blob → AudioContext.decodeAudioData → 单声道 PCM
 设置页「清空所有数据」需**两次确认**；清空后 24 个键全部移除并回到初始状态（内置书库、白名单视频库、播放列表注册表会重新播种，词场 7 键回到默认空值）。
 
 ---
+
 
 ## 七、页面与交互一览
 
@@ -503,6 +511,7 @@ MediaRecorder Blob → AudioContext.decodeAudioData → 单声道 PCM
 - ✦ **ErrorBook 易错本**：猜错词义与拼写错误分开留档，重拼连对 2 次自动销账；展开重拼输入时该词所有记录一起隐藏词形。
 - **底部导航**：学习 / **书架** / **文化** / **词场** / 复习 / 进度 / 设置（原有四项顺序不变，只插入三项）；移动端贴底带安全区，桌面端浮动居中；≥1280px 显示双侧信息栏。
 
+
 ### 语音与降级
 
 「构造器存在」不等于「语音能用」：预览面板 iframe 未声明 `allow="microphone"` 会直接报 `not-allowed`，内嵌浏览器或网络受限时识别服务常报 `network`。`src/lib/speech.ts` 提供四级链路：
@@ -522,6 +531,7 @@ MediaRecorder Blob → AudioContext.decodeAudioData → 单声道 PCM
 | 浏览器两者都不支持                           | 明确告知，**文本输入与补写文字始终可用**              |
 
 `describeSpeechSupport()` 在点击时动态判断（安全上下文 / iframe / 识别 / 录音），不再依赖页面加载时的快照。设置页的 **「麦克风自检」** 卡提供：环境状态标签、麦克风权限检测、**听写测试（实时字幕 / 是否含未确认片段 / 自动重试次数）**、3 秒试音回放、转写服务配置状态、新标签页打开与一键复制应用链接。
+
 
 ### 录音有声音、却没文字：根因与修复（v1.2）
 
@@ -551,6 +561,7 @@ MediaRecorder Blob → AudioContext.decodeAudioData → 单声道 PCM
 
 ---
 
+
 ## 九、验证结果
 
 在本机实测：
@@ -567,6 +578,7 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 **China Learner Track 本轮新增 76 项断言**：四轨道 40 个原创单元的字段完整性（`validateUnits()`）、struggle 不使用宽泛分类、examTag 跨轨道不互斥、四条 `assessmentFocus` 优先级、结构级引擎四个 focus 分支的正反例（逻辑骨架 / 情绪堆砌 vs 情节推进 / 2–3 句任务完成 / 诊断对错）、`noScore` 与「结果对象里没有 score/band/grade」、远程归一化边界、远程故障回退 Mock、省份默认关闭（37 可见 / 3 隐藏）与广东自动启用 / 手动禁用、题型说明不含「保过 / 必考 / 押题」、来源 100% `original` 且单元内容与源码零机构内容、原 7 个词库与 2 个 `china_track` 词包并列、`WordCuratorAgent` 允许新词包分片、微场景生成的 Scenario 带 `assessmentFocus`、Director 的 Mock 在 `task_completion` 下不纠语法不评发音而旧场景行为不变、第 29 键与旧键名不变；真实 DOM 走完「学习页入口 → 四轨道首页 → 省份默认关闭 → 选广东自动启用 → 手动禁用 → 轨道筛选 → A01 结构练习 → Mock 结构级反馈 → 完成单元写 XP/复习队列 → 词库选择页两个场景词包 → C01 微场景复用 Dialogue → 刷新后完成记录仍在」，并用一份旧版本存档验证 `lingua_profile` / `lingua_texts` 零丢失。
 
 ---
+
 
 ## 十、验收清单
 
@@ -599,6 +611,9 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 | +  | **对话语音层（本轮增量）**                      | ✅ AI 回复自动朗读（可一键关闭且持久化）、只朗读英文原文、真实 `getVoices()` 音色（口音分组 + 试听 + 语速音高）、TTS 与语音识别**逻辑互斥**、`levelProfile` 等级硬约束（句数上限 / 句长 / 词汇范围 / 语用复杂度）、多角色默认一人一音色、第 31 键与旧数据零丢失；累计 **1111 项断言**全通过（含 69 项新增，原 1042 项零回归），详见第二十一章 21.11 逐条验收                                                                                                                 |
 | +  | **PWA 可安装离线壳（本轮增量）**                 | ✅ `vite-plugin-pwa` + `registerType: 'prompt'`（绝不 `autoUpdate`）、生成 `manifest.webmanifest`（应用名 / 主题色 / SVG+PNG 图标）、iOS 全套 meta、App Shell（HTML/JS/CSS/manifest）预缓存可离线打开、新版本仅由用户点「立即更新」才 reload、`src/pwa/registerSW.ts` 唯一注册入口 + 无 SW 环境静默降级、**不新增任何 localStorage 键**、31 键数据模型零改动；累计 **1128 项断言**全通过（含 17 项新增，原 1111 项零回归），详见第二十二章 22.10 逐条验收 |
 
+
+
+
 ### Growth System 统一成长系统专项验收（逐条对应本次需求 12 条）
 
 | #  | 验收标准                                                        | 状态 / 落点                                                                                                                                                                                                  |
@@ -615,6 +630,7 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 | 10 | 旧 `lingua_profile` 数据迁移一次完成，旧 XP/streak 不丢失；四条学习路径与五步闭环不受影响 | ✅ `migrateGrowthData()` 用 `lingua_growth.__migrated` 标记只迁一次，旧 XP 按新曲线重算 level/levelXp；独立 JSDOM 验证「首次迁移 420 XP / 9 天 → 二次启动改 profile.xp=999 后 growth 仍 420、旧键仍 999」；28 键刷新持久化全绿，原 785 项断言零回归              |
 | 11 | 设置页可关闭 XP 动画和热力图                                            | ✅ `showXpAnimation` / `showHeatmap`（默认开）写回既有 `lingua_settings`；冒烟断言关闭后 `XpToast` / `LevelUpBanner` 不再出现、成长页热力图消失，再打开可恢复                                                                                  |
 | 12 | README 注明本地时间可篡改的 MVP 限制                                    | ✅ 见 18.9；成长页 UI 也直接写明「使用本机本地日期判定，本地时间可被手动篡改；不做服务端校验 / 加密混淆 / 反作弊弹窗，未来服务端化时迁移」                                                                                                                            |
+
 
 ### Word Lab 词场专项验收（本次需求 11 条 + 本轮追加 1 条）
 
@@ -633,6 +649,7 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 | 11 | Mock 与降级：零网络、零密钥、旧流程零回归                           | ✅ 默认离线 SVG/emoji 图、本地分片、Canvas 本地绘制、`speechSynthesis` 本地发音；三个可替换接口 `fetchWordMedia` / `getNextWords` / `scheduleNextReview`（由 `advanceProgress` + `dueWords` 承担）；**785 项断言全绿、控制台 0 错误**（含后续 17 项书写遮蔽 + 88 项 S2.5 跟读专项），原 523 项断言零回归        |                                                                                                                    |
 | 12 | **本轮追加**：背单词要求用户书写时隐藏单词                           | ✅ S3 打字 / 手写两种模式、易错本重拼均不出现词形；词卡改「回忆提示卡」，音标 / 例句 / 搭配撤下；`maskTargetWord()` 遮蔽英释与图片 `alt`（含屈折变体）；`imageSrc(..., true)` 让 SVG 兜底图不画词；逐字母比对只回显用户输入；**17 项新增断言**验证遮蔽规则、两种书写模式 DOM、配图与 alt、易错本，以及 S1/S2 仍显示词形的边界                                 |                                                                                                                    |
 
+
 ### S2.5 跟读朗读专项验收（逐条对应本次需求 10 条）
 
 | #  | 验收标准                                         | 状态 / 落点                                                                                                                                                                                                                                                   |
@@ -647,6 +664,7 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 | 8  | 发音漏读写入 `lingua_pronunciation_flags`，不进入拼写易错本 | ✅ `updatePronunciationFlags()` 只在**连续两次**漏读同一词时留档（word / missedCount / lastMissedAt / note）；`lingua_word_errors` 仅由 `finishWordSession()` 的猜错 / 拼错写入，冒烟断言两者互不污染；复习页「词汇」tab 另设独立的「发音待留意」列表，与拼写易错词分区展示                                                      |
 | 9  | 旧版本 localStorage 数据不丢失，S1/S3/S4/S5 流程不受影响    | ✅ 第 24 键纯新增、旧 23 键键名与语义零改动；`migrateWordLabData()` 幂等补键 + 给旧进度词条补 `pronunciationAttempts: 0` / `pronunciationSkipped: false`（不新建词条、不覆盖已有值）；S1 强制提交、S3 拼错重拼、S4 结算、S5 排程逻辑一字未改，**原 697 项断言零回归**                                                              |
 | 10 | 移动端与桌面端布局正常，麦克风权限请求有明确前置说明                   | ✅ 组件用弹性栅格 / `min-w-0` / 按钮换行适配窄屏，录音、识别中、结果三态视觉区分；麦克风按钮上方常驻「会请求麦克风权限，录音仅用于本次跟读比对，不上传、不保存音频」说明；设置页新增自动播放标准音（默认开）、跟读默认展开（默认开）、口音选择（复用既有 `accent`）三项偏好                                                                                                        |
+
 
 ### 三层储量体系专项验收（逐条对应本次需求 10 条）
 
@@ -663,6 +681,7 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 | 9  | 未嵌入 BBC、未用 `captions.download`、客户端无 API Key                          | ✅ `EXCLUDED_SOURCES` / `EXCLUDED_CHANNEL_KEYWORDS`；`playlistSyncAudit().noCaptionsDownload && noApiKeyInClient`；fetcher 只带 `playlistId` 参数，Key 只留在服务端代理侧                                                |
 | 10 | 每个播放列表的 `playlistId` 及来源依据                                           | ✅ 见第 15.3 节注册表全表：每个条目带 `verifiedUrl`（官方频道页面 / 官方短链 / 官方合集页）与维护备注 `note`                                                                                                                                 |
 
+
 ### 文学研读模块专项验收（逐条对应本次需求）
 
 | #  | 验收标准                            | 状态 / 落点                                                                                                            |
@@ -677,6 +696,7 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 | 8  | 无真实 API 时，新模块 Mock 模式可完整体验      | ✅ 三个 Agent 均有 `mockXxx`，`configureXxx` 默认 Mock，远程失败自动回退；冒烟全程零 API                                                  |
 | 9  | 移动端和桌面端布局正常                     | ✅ 沿用现有响应式栅格、贴底 5 项导航与桌面双侧栏；阅读页 `prose-reading` 在 ≥640px 放大字号与行高                                                    |
 | 10 | 未内置任何版权状态不明确的书籍                 | ✅ 仅 5 本公版书，全部带三件套且 `hasValidProvenance()` 校验；自定义入口强制公版声明、上限 20,000 字符、不开放整本书上传                                     |
+
 
 ### 文化视角视频专项验收（逐条对应本次需求 10 条）
 
@@ -708,6 +728,7 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 **结论：应用里没有病毒，也没有任何下载、联网上报、注册表写入、开机自启或后台驻留代码。** 全部源码可查，构建产物只有 HTML / CSS / JS，默认零后端、零 API Key。被怀疑的是**启动方式**，不是程序内容。
 
 本机装有 **360 安全卫士 + Windows Defender**。实测：Defender 无威胁记录、360 隔离区没有 LinguaBuddy 相关条目、桌面 `.lnk` 与 `start-app.cmd` 及全部源码仍在 —— 所以属于**实时防护拦截 / 报毒弹窗（启发式误报）**，不是文件真被清除。
+
 
 ### 为什么会被盯上
 
@@ -761,6 +782,7 @@ npm run smoke   # ✓ 1128 项断言全通过，控制台错误数 0
 
 研讨页复用同一套气泡与反馈卡骨架，但页头挂 `SEMINAR` 标签、反馈拆成「论证反馈 / 语言反馈」两栏，视觉上一眼可区分。
 
+
 ### 13.2 版权与书源（最高优先级）
 
 内置 **5 本**，全部出版于 1929 年前、作者逝世已久、被 Project Gutenberg 标为 Public Domain；每本都带 `source` / `publicDomainRegion` / `licenseNote` 三件套，`hasValidProvenance()` 做准入校验，缺一不入库：
@@ -788,6 +810,7 @@ chapterText（单章） + chapterBrief（1–2 句前情） + 主题/人物/引�
 
 章节切分、字数与 CEFR 估计由 `LiteraryCuratorAgent` 负责；每章分析生成 `chapterBrief`，供下一章当前情摘要使用，因此上下文随章节滚动而不随全书膨胀。`LiteraryAnalyzerAgent` 的证据闸门 `validateEvidence()` 会把任何**未逐字命中本章原文**的证据（包括真实 LLM 编出来的漂亮引文）直接剔除，从机制上杜绝编造情节。
 
+
 ### 13.4 三个新增 Agent
 
 | Agent                 | 可替换接口                                                                                                                               | 关键输出                                                                                                      |
@@ -797,6 +820,7 @@ chapterText（单章） + chapterBrief（1–2 句前情） + 主题/人物/引�
 | `seminarDirector.ts`  | `setSeminarGenerator / resetSeminarGenerator / configureSeminarGenerator / mockSeminarTurn / generateSeminar / buildSeminarReport`  | `SeminarOutput`（reply / translation / feedback.argument + language / evidencePrompt / nextQuestion / end） |
 
 三者沿用 `generateDialogue()` 的「可注入 + 远程失败自动回退 Mock」风格。研讨约束硬性写进 `normalizeSeminarOutput()`：不扮演角色（`containsRoleplay()` 检测）、不续写、不给标准答案；每轮含一个开放问题或证据追问；中文发言先给可模仿的英文框架；每 3–4 轮轻量小结；**前三轮不早退**；`feedback.level` 与 `praise` 保持与现有反馈组件兼容。
+
 
 ### 13.5 新增页面与路由
 
@@ -811,6 +835,7 @@ chapterText（单章） + chapterBrief（1–2 句前情） + 主题/人物/引�
 | `readingProgress` | `pages/ReadingProgress.tsx` | 已读书目、章节完成度、研讨次数、新增词汇、批注与书签统计                                                  |
 
 共享组件：`components/FeedbackCard.tsx`（从 Dialogue 原样抽取的 `FeedbackCard` + 新增 `SeminarFeedbackCard` / `ChatBubble`）、`components/LiteraryBits.tsx`（封面占位、三视图切换、主题/人物/引文卡、加载 / 失败 / 空三态）。阅读排版用 `index.css` 的 `.prose-reading`（≥640px 放大字号与行高）、`.lit-word`、`.lit-highlight`、`.lit-focus`、`.lit-note`，**不引入新品牌色系**。
+
 
 ### 13.6 数据模型与轻量迁移
 
@@ -838,6 +863,7 @@ export function migrateLiteraryData(): MigrationReport {
 
 返回 `MigrationReport { created, patchedSettings, legacyKeysTouched, reseededBooks, skipped }`，另有只读的 `inspectLiteraryMigration()` 与 `LITERARY_KEYS`（供清空数据时一并移除）。**幂等**：第二次运行返回全空报告；隔离 jsdom 测试证明旧 `lingua_profile` 字节不变、旧设置值保留。
 
+
 ### 13.7 现有文件的九处修改点（明确 diff）
 
 | 文件                          | 改动                                                                                                                                                                 |
@@ -859,6 +885,7 @@ export function migrateLiteraryData(): MigrationReport {
 `LiteraryBits.tsx` 提供 `LiteraryLoader`、`LoadError`、`EmptyState` 复用：章节缺失、分析加载中、章节解析失败、空书库、无研讨记录均有独立文案与「返回书架 / 重试」出口。三个 Agent 默认走 `mockXxx`，设置页填了自定义端点才切远程，任何网络 / 解析失败都自动回退本地 Mock，因此**零 API、零密钥也能完整走完阅读 → 研讨 → 进度**。
 
 > 完整新版源码见第二章文件树中 ★ / ✎ 标注的对应文件；逐条验收见第十章「文学研读模块专项验收」。
+
 
 ### 13.9 旁侧生词词典（阅读页本轮调整）
 
@@ -899,6 +926,7 @@ export function migrateLiteraryData(): MigrationReport {
 
 核心闭环是 **观看 → 理解 → 产出**：官方播放器里看视频（支持字幕偏好与元数据预配置的分段提示）→ 播放器下方读文化背景卡与短引用 → 观后讨论里先回忆具体画面/声音细节，再表达观点，最后把用到的短表达写进复习队列。
 
+
 ### 14.2 视频源白名单、版权与配额（最高优先级）
 
 `src/data/cultureSeed.ts` 的 `PLATFORM_POLICIES` 是**唯一准入来源**，`VideoPlatform` 联合类型只允许这六类：
@@ -919,6 +947,7 @@ export function migrateLiteraryData(): MigrationReport {
 
 **配额与成本。** 采用「预配置播放列表 + 本地索引」：`filterVideos()` / `groupByTheme()` 只在客户端筛选内存里的 5 条元数据，**不调用 `search.list`、不做实时搜索、不暴露任何 API Key**；若将来接入真实 API，必须经服务端代理，客户端不持有密钥。
 
+
 ### 14.3 官方播放器合规守门（`src/services/culturePlayer.ts`）
 
 | 函数                                                         | 作用                                                                                                                                                                   |
@@ -933,6 +962,7 @@ export function migrateLiteraryData(): MigrationReport {
 | `auditVideoCompliance(video)`                              | 返回 `platformAllowed / excludedSource / embedUrl / embedCompliant / needsFallback / usesLocalCaptionsOnly / noFullTranscriptField`，把「没下载 / 没抓流 / 没用字幕下载接口」变成可断言的结构化事实 |
 
 内置 5 条视频的形态：`ted:iframe ×3`（官方嵌入，slug 均经 `embed.ted.com` 只读探测 200）、`pexels:placeholder ×1`（纯占位，无视频流）、`voa:linkOnly ×1`（只给原页面链接）。**不可嵌入的一律不构造 iframe，绝不伪装成可播放**。
+
 
 ### 14.4 三个新增 Agent
 
@@ -953,6 +983,7 @@ export function migrateLiteraryData(): MigrationReport {
 - **PostWatch**：独立页头、种子问题与短引用侧卡、4 轮以上对话、逐轮观点+语言双反馈、阶段小结、结束小结、「回视频找细节」。
 - **CultureReview**：已看视频、收藏的短表达、原创注释、讨论记录，以及 4 个新键与 4 个复用旧键的数据落点。
 
+
 ### 14.6 数据模型与轻量迁移
 
 `src/cultureTypes.ts` 定义全部契约（平台策略、视频、分段、短引用、分析、观看进度、观后会话与反馈、报告、笔记）。`src/lib/storage.ts` 从 12 键扩到 **16 键**，新增：
@@ -972,6 +1003,7 @@ export function migrateCultureData(): CultureMigrationReport {
 ```
 
 返回 `CultureMigrationReport { created, patchedSettings, legacyKeysTouched, reseededVideos, skipped }`；`inspectCultureMigration()` 与 `CULTURE_KEYS` 供自检。冒烟测试在隔离 jsdom 里用「只有旧键」的存档验证：`lingua_profile` 逐字节不变、旧设置值保留、首次创建 4 键、二次运行零写入。
+
 
 ### 14.7 现有文件的八处明确 diff
 
@@ -1025,6 +1057,7 @@ YouTube Data API v3 的配额结构决定了唯一可行路径：
 - **第 2 层 · 播放列表注册表（增长引擎）**：新键 `lingua_playlist_registry` 预置 11 个播放列表。维护者只需向注册表添加一个 `playlistId`，用户手动点「🔄 同步播放列表」即可通过 `playlistItems.list`（1 单位/次）拉取并合并；预置清单见 15.3。
 - **第 3 层 · 白名单频道（人工精选）**：注册表内嵌 `channels` 频道白名单（VOA / TED-Ed / British Council / American English），每个频道只挂已验证的 `playlistIds`；`status` 区分 `verified` / `pending-verification`。**严禁**将个人创作者频道（"English with Emma"、"Bob the Canadian" 等）自动纳入——`EXCLUDED_CHANNEL_KEYWORDS` 显式排除。
 
+
 ### 15.3 预置播放列表注册表（每个 ID 均有可验证来源，验收标准 10）
 
 | playlistId                           | 来源              | 标签                           | 主题 / 难度   | 来源依据（verifiedUrl）                                                | 状态                    |
@@ -1042,6 +1075,7 @@ YouTube Data API v3 的配额结构决定了唯一可行路径：
 | `PLm7J5yZ2yc3ksm8YquBP82ZydteQGCzdM` | british-council | Shakespeare 短片集              | 艺术媒体 / C1 | 同上（含第三方演出素材）                                                     | **停用**                |
 
 **来源许可优先级**：① VOA Learning English（美国联邦政府作品 / 公共领域，占比 50% ≥ 40% 压舱石要求；嵌入时避开含第三方音乐/影视片段的条目）② TED-Ed（CC BY-NC-ND 4.0）③ British Council LearnEnglish（B2–C1 精选，但**嵌入权限必须逐条确认**，未确认前 `enabled:false`、不尝试绕过）④ Pexels / Pixabay（补充 B-roll，仅原创教学占位）。**明确排除**：BBC 任何视频、影视切片、来源不明的「英语学习合集」。
+
 
 ### 15.4 新增文件（7 个）与现有文件修改（5 处）
 
@@ -1075,6 +1109,7 @@ YouTube Data API v3 的配额结构决定了唯一可行路径：
 
 前三条路径（角色对话、文学研读、文化视频）里的生词都是**顺路遇到**的；词场补的是另一半：**主动、按分级词库、每天定额地学新词**。它不改动任何既有路径：旧 8 键语义一字未改，旧复习队列、错题本、成就、XP、语音评测全部沿用；只是在底部导航多了一个「词场」，在复习页多了一个「词场」tab。
 
+
 ### 16.2 词库来源与许可（最高优先级）
 
 | 组成        | 来源                                        | 许可 / 处理                                                                                                 |
@@ -1100,6 +1135,7 @@ YouTube Data API v3 的配额结构决定了唯一可行路径：
 | 雅思 7.5  | 50   | C1   | 500  |
 
 `src/data/wordDecks/index.ts` 是唯一加载入口：`loadShard(deckId, shardIndex)` 按 `shardSize` 切片，`WordCuratorAgent.getNextWords()` 先读第 1 片、不够才读第 2 片，**绝不一次性加载全量**；`setShardLoader()` 可注入真实分片 JSON fetch。种子阶段每库只有一个分片（50 词左右），后续扩充词表只需加分片文件，不改加载逻辑。
+
 
 ### 16.4 五步状态机（S0–S5）
 
@@ -1129,6 +1165,7 @@ YouTube Data API v3 的配额结构决定了唯一可行路径：
 - `wordProgressToReviewItem()` 输出带 `source: 'wordlab'` 的复习卡片；`Review.tsx` 新增「词场」tab，把到期词与既有 `lingua_review_queue` 合并展示，用 `source` / `origin` 标签区分来源；
 - 阅读页生词、观后讨论生词一键入队时 `origin` 为 `reading` / `video`，**不占当日新词额度**。
 
+
 ### 16.6 三个新 Agent
 
 | Agent                | 文件                        | 可替换接口                                         | 职责                                                                                 |
@@ -1136,6 +1173,7 @@ YouTube Data API v3 的配额结构决定了唯一可行路径：
 | **WordCuratorAgent** | `services/wordCurator.ts` | `setNextWordsProvider()` / `setShardLoader()` | 分片加载、跳过已学词去重、按额度生成新词队列、外部生词入队                                                      |
 | **WordMediaAgent**   | `services/wordMedia.ts`   | `setWordMediaFetcher()` / `fetchWordMedia()`  | 图片与例句；默认按 `imageQuery` 主题生成 SVG + emoji 兜底；结果写 `lingua_word_media_cache`（上限 300 条） |
 | **WordCoachAgent**   | `services/wordCoach.ts`   | `setWordCoach()`                              | 结算时按正确率给 ≤2 句鼓励 + 1 条可执行建议，统计易错词                                                   |
+
 
 ### 16.7 新增文件（17 个）与现有文件修改（11 处）
 
@@ -1154,6 +1192,7 @@ YouTube Data API v3 的配额结构决定了唯一可行路径：
 9. `src/components/WordPanel.tsx` — 新增可选 `onAddToWordLab` 属性与「一键加入词场队列」按钮（不传则不渲染）；
 10. `src/pages/Reader.tsx` — 阅读生词接 `enqueueWordFromContext(..., 'reading')`；
 11. `src/pages/PostWatch.tsx` — 观后小结抽出实词，一键 `enqueueWordFromContext(..., 'video')`。
+
 
 ### 16.8 限流规则、手写模式与降级
 
@@ -1202,6 +1241,7 @@ S1 猜义 → S2 验证（图 + 例句 + 释义）→ S2.5 跟读朗读 → S3 �
 
 `src/services/pronunciation.ts` 里有一张 `FORBIDDEN_FEEDBACK` 禁用词表（准确率 / 正确率 / 发音得分 / 百分制 / 星级 / 音素级 / 发音不标准 / 你读错了 / 判定为 …），冒烟测试逐条扫描源码与 UI 文案，确保界面上不出现任何百分制分数、星级评分、音素级准确率或「正确 / 错误」的二元结论。覆盖率 `coverage` 只留在数据层用来挑文案，**不在 UI 上呈现为分数**。识别用的是浏览器自带 `SpeechRecognition`，不接 Azure Speech / 讯飞 / ELSA 等商业评测 API —— 未来若接入，也作为独立增强项，不塞进这条闭环。
 
+
 ### 17.4 技术实现：识别、比对、防作弊与音量检测
 
 **识别**：`SpeechRecognition`（兼容 `webkitSpeechRecognition`），`lang` 跟随 `settings.accent`（`en-US` / `en-GB` / `en-AU`），`interimResults: false`；`setPronunciationRecognizer()` / `resetPronunciationRecognizer()` 可注入 Mock 识别器。
@@ -1222,6 +1262,7 @@ export const READ_ALOUD_POLICY = {
 
 **音量检测**：`createVolumeMeter(stream)` 用 `AudioContext` + `AnalyserNode` 采样 RMS，UI 上画实时音量条；`peak < silenceRms` 判定静音。少于 0.8 秒与全程静音两条路径都在 `attempts++` 之前返回，**不消耗重试次数**。没有做更复杂的活体检测（MVP 不必要）。
 
+
 ### 17.5 四级降级、语音权限说明与 Mock
 
 **权限前置说明**：麦克风按钮上方常驻一行小字 ——「会请求麦克风权限，录音仅用于本次跟读比对，不上传、不保存音频」。请求只在用户主动点击「开始跟读」时发起，不自动弹权限框。
@@ -1237,6 +1278,7 @@ export const READ_ALOUD_POLICY = {
 | 非安全上下文 / 预览 iframe 权限受限    | `insecure` / `iframe` | 麦克风禁用，降级为自评跟读                                        |
 
 **Mock 演示模式**：`settings.apiMode === 'mock'` 时麦克风区展示静态波形占位与醒目的「演示模式」角标，点击后固定 1.5 秒「识别中」，再随机返回 70%–100% 覆盖率与漏词列表，结果标 `mock: true`。它只是 UI 演示，不写入「连续两次漏读」的 flag 判定（自评同理）。
+
 
 ### 17.6 数据模型、第 24 键与幂等迁移
 
@@ -1275,6 +1317,7 @@ export const READ_ALOUD_POLICY = {
 `updatePronunciationFlags()` 只在**连续两次**有效识别都漏掉同一个词时留档；换一个漏词集合不会污染 flags。`applyPronunciationResults(next, results)` 在 S4 结算后一次性合并：只给已存在的进度词条补 3 个可选字段、**不新建词条**（不干扰新词额度统计），只写第 24 键，**绝不写 `lingua_word_errors`**（那是拼写易错本）。复习页「词汇」tab 另设独立「发音待留意」列表，列出连续漏读词与跳过跟读的词，与拼写易错词分区展示，避免两类问题混排。
 
 **迁移**（`src/lib/wordLabStorage.ts` 的 `migrateWordLabData()`，在 `loadData()` 前跑，幂等）：原有三件收敛（跨天额度归零、媒体缓存裁 300 条）之外，只多做两件 —— 缺失时播种第 24 键、给旧 `lingua_word_progress` 词条补 `pronunciationAttempts: 0` / `pronunciationSkipped: false`。重复运行不产生新数据，任何异常静默跳过交给逐键 `safeParse` 回退，旧存档零丢失。
+
 
 ### 17.7 新增文件（3 个）与现有文件修改（10 处）
 
@@ -1355,6 +1398,7 @@ S2.5 区域用一张独立卡片贴在 S2 下方，**录音（音量条 + 倒计
 5. **断签不清零 XP、不锁成就**：只重置连续天数，并提供冻结卡宽容机制；升级不发额外 XP、不发货币。
 6. **不做技能树、不做付费货币、不做排行榜**：范围只到「经验 + 等级 + 连续 + 成就」。
 
+
 ### 18.2 唯一入口 `awardXp(event): XpResult`
 
 完整实现见 `src/services/growth.ts`（唯一写 `growth.xp` 的文件），契约见 `src/growthTypes.ts`。
@@ -1399,6 +1443,7 @@ export function awardXp(event: XpEvent): XpResult {
 
 `useAppStore.awardXp(XpEvent)` 是 React 层唯一出口：服务实时读写四键，成功后把快照同步进 state，并用 `mirrorProfile()` 把 `xp / streak / todayXp` 回写旧字段作为**只读镜像**（旧 UI 与旧存档继续可读）。旧的 `awardXp(number)` 兼容包装与每次渲染全量扫描旧徽章的 `useEffect` 均已移除，旧 8 枚徽章改为在发放完成后增量判定。
 
+
 ### 18.3 XP 规则表、有效轮次与限流
 
 | 来源          | 完成单元                       | XP                             | 约束 / 幂等键                                   |
@@ -1436,6 +1481,7 @@ export function computeLevel(totalXp: number): { level: number; levelXp: number 
 - **里程碑**：`markActiveDay()` 用 `milestones[]` 去重，首次达到 3/7/14/30/60/100/180/365 天派生对应 XP 事件。
 - **时间判定**：本地 `YYYY-MM-DD` + `lastActiveDate`。**MVP 接受本地时间可被篡改**（见 18.9）。
 
+
 ### 18.6 成就系统（27 枚，事件驱动）
 
 完整定义见 `src/data/achievementSeed.ts`。每条含 `id / category / title / description / hidden / condition / progress / unlocked / unlockedAt / rewardXp / emblem / hint`。
@@ -1454,6 +1500,7 @@ export function computeLevel(totalXp: number): { level: number; levelXp: number 
 
 **可达性接线**（全部是 0 XP 标记事件）：选库 `deck_selected`、词库里程碑 `deck_milestone`、文化主题 `theme_discussed`、阅读 / 观后入队 `external_word_enqueued`、跟读 `read_aloud_complete / read_aloud_full / read_aloud_comeback`、冻结卡 `freeze_used`、每日达标 `daily_goal`；因此 27 枚成就在学习流程中都有真实触发路径。
 
+
 ### 18.7 四个新键与一次性迁移
 
 | 键                         | 内容                                                                                                                                                   |
@@ -1464,6 +1511,7 @@ export function computeLevel(totalXp: number): { level: number; levelXp: number 
 | `lingua_activity_heatmap` | 最近 90 天 `{"YYYY-MM-DD": xpAmount}`，写入前裁剪                                                                                                             |
 
 `src/lib/growthStorage.ts` 的 `migrateGrowthData()` 在 `loadData()` 之前运行：四键缺失才播种；仅当 `lingua_growth.__migrated !== true` 时把 `lingua_profile` 的旧 `xp / streak / lastActiveDate` 迁入，旧 XP 按新曲线重算 `level / levelXp`，然后打标记 —— 重复启动不再覆盖后续积累。迁移对**旧键零改动**；之后 `profile` 只作为只读镜像双写。`readGrowthBundle()` 每次实时读四键，`writeGrowthBundle()` 写回前裁剪账本与热力图。React 层初始化迁移链现在共四次：`migrateLiteraryData → migrateCultureData → migrateWordLabData → migrateGrowthData`。
+
 
 ### 18.8 页面、组件与各模块接线（明确 diff）
 
@@ -1514,6 +1562,7 @@ export function computeLevel(totalXp: number): { level: number; levelXp: number 
 
 **定位**：内容层扩展。不重写应用、不新建学习机制、不新增 Agent（结构级写作反馈引擎除外）、不改旧路由与 localStorage 键名语义。四条既有学习路径与 Word Lab 五步闭环完全不受影响，底部导航仍为 8 项。
 
+
 ### 19.1 设计依据：锚定「学生可自我识别的具体卡点」
 
 分类不使用「中学英语」「大学英语」「应试英语」这类宽泛标签。四个轨道分别对应需求给出的研究结论：
@@ -1527,6 +1576,7 @@ export function computeLevel(totalXp: number): { level: number; levelXp: number 
 
 `struggle` 是每条资源的第一个 UI 元素，用一句中文让学生判断「这是不是我的问题」，例如「我写英文作文时，是先在脑子里想好中文，再一句一句换成英文。」
 
+
 ### 19.2 四个轨道与种子内容
 
 | 轨道             | 单元数                           | 典型 struggle                     | assessmentFocus                                 | engine                         |
@@ -1537,6 +1587,7 @@ export function computeLevel(totalXp: number): { level: number; levelXp: number 
 | D 中式英语 · 诊断    | 10（D01–D10）                   | 「学习知识」「提高能力」这类话，我一直是照着中文直译成英文的。 | `chinglish_diagnosis`                           | `writing_feedback` / `wordlab` |
 
 每轨道 10 个单元，合计 **40 个**，完整字段见 19.3。四个轨道并列展示，`examTags` 只做筛选：同一个 `cet6` 标签同时服务 A / C / D 三个轨道，不切成互斥的考试路径。
+
 
 ### 19.3 资源单元数据模型
 
@@ -1575,6 +1626,7 @@ interface TrackUnit {
 
 `assessmentFocus` 决定反馈优先级：A 不优先纠语法、B 不优先评语言、C 不优先评发音、D 不给分数。四个优先级文案集中在 `FOCUS_PRIORITY`，UI 与引擎读同一份常量。
 
+
 ### 19.4 内容来源与版权分层（最高优先级）
 
 **本轮交付的 40 个单元 100% 为 `source.type = original`**：中文材料、英文原文段落、学生典型产出、地道改写、题型说明与模拟指令全部原创生成，逐条带 `attribution` 与 `license`。
@@ -1605,6 +1657,7 @@ interface TrackUnit {
 - 选择**广东 / 北京 / 上海**自动启用（`autoEnable: true`）；浙江 / 江苏 / 山东 / 其他地区保持关闭，用户可手动开启，`examOverride` 记录手动覆盖优先。
 - 设置页与资源库首页共用 `ProvinceConfig` 组件；省份**不上传、不追踪**、不参与任何分数计算。
 - **不假定全国高考政策统一**：题型、分值、是否计入总分一律以当地教育考试院最新通知为准；`examBrief` 只说明流程，不提供评分标准、不预测分数、不承诺提分。
+
 
 ### 19.6 与现有引擎的集成（含 Director schema 完整新版 / diff）
 
@@ -1666,6 +1719,7 @@ ENGINE_SCOPE                                   // does / doesNot 边界常量
 
 **（4）成长系统**：`XpSource` 追加 `'china_track'`，`XP_RULES.china_track_complete = 12`，`ACTIVE_ACTIONS` 追加该 action，`NO_XP_ACTIONS` 追加 `view_exam_brief` / `change_track_filter` / `change_province`（只看说明、切筛选、选省份都不发 XP）。`checkCap()` 增加「同一单元每天只入账一次」（bucket = `meta.unitId`）。完成单元时 `completeUnit()` 写 `lingua_china_track.completed`、往既有 `lingua_review_queue` 插一张 `source='china_track'` 的 `phrase` 卡，再经**唯一入口** `awardXp({ source:'china_track', action:'china_track_complete', ... })` 发放，复习走既有 SM-2，不新建机制。
 
+
 ### 19.7 文件树与改动清单
 
 **新增（◈）**：
@@ -1698,6 +1752,7 @@ ENGINE_SCOPE                                   // does / doesNot 边界常量
 
 `npx tsc --noEmit` ✅ · `npm run build` ✅（约 874 KB JS / 45.58 KB CSS）· `npm run smoke` ✅ **974 项断言全绿、控制台 0 错误**（898 → +76，原 898 项零回归）。`check-server.cjs` / 本地服务 HTTP 200 不变。
 
+
 ### 19.10 逐条对应验收标准
 
 | # | 验收标准                                           | 状态 / 落点                                                                                                                                                                                                    |
@@ -1723,6 +1778,7 @@ ENGINE_SCOPE                                   // does / doesNot 边界常量
 2. **跳级不锁内容，留级不降 XP**。跳级只是改变内容池的筛选范围，不阻止访问任何等级资源；留级不扣 XP、不清空进度、不触发任何负向提示。
 3. **每个资源单元必须自带 CEFR 标签和「难度依据」**（`cefrBasis` ≥ 3 项 + 一句 `levelNotes`），分级可解释、可审计。
 4. **三模块共用同一套等级字段与筛选逻辑**（`src/levelTypes.ts` + `src/services/levelFilter.ts`）。
+
 
 ### 20.2 三模块内容来源扩展（按许可清晰度排序）
 
@@ -1792,6 +1848,7 @@ interface LevelPreference {
 - 用户调整任一模块 → 该模块 `mode` 转 `"manual"`，`active` 不变、其余模块不受影响
 - 跳级 / 留级**只改筛选偏好**：XP、streak、成就、已学进度全部保留（`growth.xp` / 复习队列 / `profile.xp` 经冒烟断言确认不变）
 
+
 ### 20.5 LevelFilterService（三模块共用的唯一筛选层）
 
 ```ts
@@ -1822,6 +1879,7 @@ annotationDepthFor(pref, module): { level, depth, label }  // 注释深度跟随
 - 三模块列表页顶部接入：`Analysis.tsx`（对话）、`Library.tsx`（阅读）、`CultureHub.tsx`（视频）
 - 每日计划（`Home.tsx` 的「今日小目标」）改为调用 `recommendDailyTask(data.levelPreference)` — **只读 `pref.active`，不读 `pref.recommended`**（见 `src/services/dailyPlan.ts`）
 
+
 ### 20.8 数据来源与许可说明
 
 | 来源                              | 用于模块 | 许可              | 使用方式          |
@@ -1848,6 +1906,7 @@ annotationDepthFor(pref, module): { level, depth, label }  // 注释深度跟随
 ### 20.10 验证
 
 `npx tsc --noEmit` ✅ · `npm run build` ✅（约 893 KB JS / 46.1 KB CSS）· `npm run smoke` ✅ **1040 项断言全绿、控制台 0 错误**（原 974 项零回归，本轮 +66）。`check-server.cjs` / 本地服务 HTTP 200 不变。独立 JSDOM 走完「学习页 → 对话 / 阅读 / 视频三列表页等级面板 → 跳级 / 留级 / 显示全部 → 每日计划读 active → 刷新持久化」，并经 `normalizePreference` 确认旧存档只补缺不覆盖、损坏时回退默认 B1。
+
 
 ### 20.11 逐条对应验收标准
 
@@ -1929,6 +1988,7 @@ annotationDepthFor(pref, module): { level, depth, label }  // 注释深度跟随
 - 归一化**只补缺不覆盖**；老存档没有该键时，从旧 `lingua_settings` 的 `autoSpeak` / `accent` / `rate` 接过来（升级不会让已开好的自动朗读失效）。
 - 偏好键与 `lingua_settings` **原子同步**：对话页开关与设置页开关永远一致。
 
+
 ### 21.7 等级 → 语言参数（levelProfile）
 
 等级来源：`lingua_level_preference.perModule.dialogue`，未设置则回落全局 `active`。**跳级 / 留级后下一轮回复立即生效**，已生成的旧回复不重写、不重新朗读。
@@ -1945,6 +2005,7 @@ annotationDepthFor(pref, module): { level, depth, label }  // 注释深度跟随
 - **等级不改变角色性格与场景目标**，只改变语言复杂度：同一个 B2 场景，A2 用户进入时角色依然保持性格，但说话更简单。
 - **改写建议也匹配等级**：A2 / B1 的改写会砍掉从句尾巴只留主句；B2 / C1 原样保留，不把高等级用户降级成 A2 句式。
 - `DialogueDirectorAgent` 输入 schema 增加可选 `levelProfile`，接入四处：**prompt / payload / Mock 生成 / 远程归一化**；旧调用点不传该字段时行为完全不变。
+
 
 ### 21.8 降级与边界
 
@@ -1973,6 +2034,7 @@ annotationDepthFor(pref, module): { level, depth, label }  // 注释深度跟随
 
 `npx tsc --noEmit` ✅ · `npm run build` ✅ · `npm run smoke` ✅ **1111 项断言全绿、控制台 0 错误**（原 1042 项零回归，本轮 +69）。其中包含一个带**语音合成桩**的独立 JSDOM：真实走完「对话页 → 音色面板 → 自动朗读 → 只读英文 → 停止 → 关闭开关 → 刷新持久化 → 跳级到 A2 下一轮立即生效 → 无音色降级 → 不支持 speechSynthesis」，并用旧存档验证 `lingua_profile` / `lingua_texts` 零丢失。
 
+
 ### 21.11 逐条对应验收标准
 
 | #  | 验收标准                                                          | 状态 / 落点                                                                                                                                           |
@@ -1996,6 +2058,7 @@ annotationDepthFor(pref, module): { level, depth, label }  // 注释深度跟随
 
 > 一句话定位：**给这艘学习小船装一个离线锚**。此前应用完全没有 manifest、没有 Service Worker。本轮用 `vite-plugin-pwa` 增量接入，学习逻辑与 31 个 localStorage 键一个字节都没动。
 
+
 ### 22.1 设计红线
 
 | 约束                                       | 落地                                                                                                                            |
@@ -2007,6 +2070,7 @@ annotationDepthFor(pref, module): { level, depth, label }  // 注释深度跟随
 | 不缓存用户数据 / 远程接口                           | 只预缓存静态壳，未配置 `runtimeCaching`；用户自填的 LLM 端点、视频嵌入、字幕一律不进 SW                                                                      |
 
 > ⚠️ **离线范围说明（诚实边界）**：Service Worker 只缓存「基础界面」。离线时能打开 App、浏览本地数据（localStorage 里的词库、进度、对话历史都在本机），但**需要联网的 AI 生成、语音识别、官方视频嵌入在断网时不可用**——这是纯前端应用的天然边界，不做虚假承诺。
+
 
 ### 22.2 依赖安装（唯一需要手动执行的一步）
 
@@ -2030,6 +2094,7 @@ npm run generate-icons  # 重新生成 PNG 占位图标（换品牌图时先改 
 
 > **验证安装体验的正确姿势**：`npm run build && npm run preview`，然后用 Chrome 打开 `http://127.0.0.1:4173`（localhost 视为安全上下文，SW 可用），地址栏出现「安装」图标；DevTools → Application → Service Workers 可看到已激活，切 Offline 后刷新仍能打开界面。
 
+
 ### 22.3 文件清单（◈ 新增 / ✎ 修改）
 
 | 文件                                                            | 状态 | 作用                                                   |
@@ -2048,6 +2113,7 @@ npm run generate-icons  # 重新生成 PNG 占位图标（换品牌图时先改 
 | `src/components/Layout.tsx`                                   | ✎  | 挂载 `<PwaUpdatePrompt />`（2 行 diff）                   |
 | `smoke.mjs`                                                   | ✎  | +17 项 PWA 专项断言（第二十二块）                                |
 | `README.md`                                                   | ✎  | 本章 + 文件树 ⧉ 标注                                        |
+
 
 ### 22.4 `vite.config.ts`（完整新版）
 
@@ -2107,6 +2173,7 @@ export default defineConfig({
 {"name":"LinguaBuddy 语伴英语","short_name":"LinguaBuddy","description":"…","start_url":"./","display":"standalone","background_color":"#f4f7ff","theme_color":"#f5f8ff","lang":"zh-CN","scope":"./","id":"./","dir":"ltr","categories":["education","productivity"],"icons":[{"src":"pwa-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"},{"src":"pwa-icon-maskable.svg","sizes":"any","type":"image/svg+xml","purpose":"maskable"},{"src":"pwa-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"pwa-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}
 ```
 
+
 ### 22.5 `index.html`（完整新版）
 
 ```html
@@ -2148,6 +2215,7 @@ export default defineConfig({
 
 `scripts/generate-pwa-icons.mjs` 是零第三方依赖的 PNG 生成器（Node 内置 `zlib` 手写 PNG、CRC32、逐像素绘制），`npm run generate-icons` 一键产出三个尺寸。换品牌图时改这个脚本的 `paint()` 或直接用设计工具导出同名文件覆盖。
 
+
 ### 22.7 `src/pwa/registerSW.ts`（完整代码）
 
 ```ts
@@ -2188,6 +2256,7 @@ export function setupServiceWorker(callbacks: PwaCallbacks): UpdateSW {
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-pwa/client" />
 ```
+
 
 ### 22.8 `src/components/PwaUpdatePrompt.tsx`（完整代码）
 
@@ -2270,6 +2339,7 @@ export function PwaUpdatePrompt() {
 
 关键点：**没有 `autoUpdate`、没有 `clientsClaim`、没有 `skipWaiting` 自动触发**；唯一会 reload 的路径是用户亲手点按钮。
 
+
 ### 22.10 逐条对应验收标准
 
 | # | 验收                                       | 状态                                                                                                                                                             |
@@ -2306,6 +2376,7 @@ Vercel 默认会把 `dist/` 当作静态站点发布，但有两处会咬人：
 
 1. **SPA 深链 404**：本项目是单页应用（`View` 联合类型 + 状态驱动导航，无 URL 路由），用户刷新 / 分享任意路径时，静态托管默认找不到对应物理文件 → 404。
 2. **PWA 关键文件被缓存**：`sw.js` 与 `manifest.webmanifest` 若被浏览器或 CDN 缓存，新版本部署后用户仍拿到旧 SW / 旧图标 / 旧应用名，出现「更新了但没变」甚至「旧 index.html 引用已失效 hash 资源 → 白屏」。
+
 
 ### 23.2 配置文件（完整代码）
 
@@ -2352,6 +2423,7 @@ Vercel 默认会把 `dist/` 当作静态站点发布，但有两处会咬人：
 }
 ```
 
+
 ### 23.3 逐条解释
 
 | 配置                                          | 作用                                       | 依据                                                                                                                        |
@@ -2363,6 +2435,7 @@ Vercel 默认会把 `dist/` 当作静态站点发布，但有两处会咬人：
 | `framework/buildCommand/outputDirectory`    | 固化 Vite 构建                               | `npm run build` = `tsc --noEmit && vite build`，产物 `dist/`                                                                 |
 
 > ⚠️ **已知边界（不改动，仅记录）**：本项目的 `base:'./'` 与 manifest 的 `start_url:'./'` / `scope:'./'` 是为「子目录 / 本地文件部署」保留的相对路径。在 Vercel 根域名下，SW 注册为 `./sw.js` 会解析成 `/sw.js`，**根路径一切正常**；但如果将来引入带多级路径的 URL 路由（`/a/b/c`），相对资源会解析成 `/a/b/assets/...` 而 404。届时需把 `base` 与 manifest 的 `start_url` / `scope` / `id` 一并改成 `/`。当前状态驱动导航无 URL 路由，不受影响。
+
 
 ### 23.4 PWA 上线自检清单（部署到 Vercel 后执行）
 
@@ -2416,6 +2489,7 @@ npm run smoke     ✅ 1138 项断言全绿、控制台 0 错误（原 1128 项�
 
 注册层 `setupServiceWorker()` 使用 `immediate: false`，且未启用 `periodicSyncForUpdates`——不存在后台定时检查 / 定时刷新。`devOptions.enabled: false` 保证 dev 模式不产出 SW，避免热更新被旧缓存吞掉。
 
+
 ### 24.2 本轮改动：底部 `UpdatePrompt`
 
 | 文件                                   | 变化                                                                                            |
@@ -2446,6 +2520,7 @@ const updateServiceWorker = (reloadPage: boolean) => {
 ```
 
 `updateServiceWorker(true)` 内部由 `virtual:pwa-register` 向 waiting SW 发送 `SKIP_WAITING` 并重载页面——这是整条链路上**唯一**会打断用户的地方，且必须由用户亲手点击。
+
 
 ### 24.3 本地模拟「有新版本」测试指南（Chrome）
 
@@ -2515,6 +2590,7 @@ npm run smoke     ✅ 1144 项断言全绿、控制台 0 错误（原 1138 项�
 
 一个纯静态的"纸桥"页面：把电脑当前访问地址变成黑白二维码，手机扫一下就能在同一 WiFi 里打开 LinguaBuddy。**零改动**：React 路由 / 8 项底部导航 / 31 个 localStorage 键 / 学习逻辑 / PWA 更新策略全部不动。
 
+
 ### 25.1 新增文件
 
 | 文件                     | 作用                                                                                                  |
@@ -2526,6 +2602,7 @@ npm run smoke     ✅ 1144 项断言全绿、控制台 0 错误（原 1138 项�
 | `smoke.mjs`            | 新增第二十五块 12 项断言（含 jsdom 三种环境运行时渲染断言）                                                                 |
 
 选 `public/qr.html` 而不是 React 里加 `/qr` 路由，是因为它不参与打包、不碰 `View` 联合类型与 `PAGES` 映射、dev 和 preview 下都能直接访问，测完删掉也不会留下任何路由残骸。
+
 
 ### 25.2 页面逻辑
 
@@ -2539,6 +2616,7 @@ npm run smoke     ✅ 1144 项断言全绿、控制台 0 错误（原 1138 项�
   > `public/qrcode.min.js` 仍保留为独立副本；若确实要改回 CDN，把 `qr.html` 里第一段 `<script>` 换成指向 `https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js` 的 `src` 引用即可（但会重新引入上述风险）。
 - **渲染**：`new QRCode(el, { text, width:256, height:256, colorDark:'#000000', colorLight:'#ffffff', correctLevel: M })`，白底黑码；另有 canvas 可见性兜底与 `try/catch` 失败可见提示。
 - **防呆**：若用 `localhost` / `127.0.0.1` 打开本页，页面会红字提醒"手机打不开，请改用局域网 IP"——否则手机扫出来指向它自己。
+
 
 ### 25.3 本地启动与手机扫码（操作步骤）
 
@@ -2607,6 +2685,7 @@ npm run smoke     ✅ 1156 项断言全绿、控制台 0 错误（原 1144 零�
 | `supabase/SCHEMA.md`                                      | Schema 文档：ER / 字段表 / 索引 / RLS / 设计决策 / 执行步骤    |
 | `smoke.mjs`                                               | 新增第二十六块 8 项结构断言                                |
 
+
 ### 26.2 表设计：单表 JSON 快照
 
 `一个用户 × 一种 data_type = 一行`，`unique(user_id, data_type)` 保证 upsert 幂等。
@@ -2620,6 +2699,7 @@ npm run smoke     ✅ 1156 项断言全绿、控制台 0 错误（原 1144 零�
 | `created_at` / `updated_at` | `timestamptz` | 后者由触发器自动维护，供多设备冲突判断                    |
 
 三类核心数据映射：`lingua_profile`（对象 `Profile`）、`lingua_mistakes`（`Mistake[]`）、`lingua_review_queue`（`ReviewItem[]`）；其余 28 个本地键沿用键名即可。⚠️ 若将来同步 `lingua_settings`，先剔除 `apiKey` / `asrKey`，用户自填的第三方密钥不应离开本机。
+
 
 ### 26.3 RLS：用户只能读写自己的数据
 
@@ -2674,6 +2754,7 @@ npm run smoke             ✅ 1164 项断言全绿、控制台 0 错误（原 11
 ## 二十七、Supabase 前端接入：账号与云同步（v1.5 增量）
 
 在上一章纯 SQL 结构之上接通前端。**零改动**：31 个 `localStorage` 键名与语义、状态驱动导航、Mock 降级、PWA 更新策略、全部既有业务逻辑均保持不变。
+
 
 ### 27.1 交付清单
 
@@ -2762,6 +2843,7 @@ npm run smoke     ✅ 1173 项断言全绿、控制台 0 错误（原 1164 零�
 
 给一直靠本地 Mock 发电的对话模块接上一颗云端大脑，同时**把 Mock 留成保险丝**。**零改动**：31 个 `localStorage` 键、8 项导航、PWA 策略、Supabase 云同步、雅思 / CEFR / 语音层的全部业务语义。
 
+
 ### 28.1 交付清单
 
 | 文件                                 | 变化                                                                                                              |
@@ -2775,6 +2857,7 @@ npm run smoke     ✅ 1173 项断言全绿、控制台 0 错误（原 1164 零�
 | `scripts/llm-dev-server.mjs`       | **新增**。本地联调台：挂载 `api/chat.ts` + 内置假上游                                                                           |
 | `vite.config.ts` / `package.json`  | 仅新增 `server.proxy['/api']` 与 `dev:ai` 脚本                                                                        |
 | `smoke.mjs`                        | 第二十八块 20 项断言（含真实 handler 运行时测试）                                                                                 |
+
 
 ### 28.2 后端契约 `api/chat.ts`
 
@@ -2834,6 +2917,7 @@ Dialogue.tsx 原有的 try/catch + mockGenerateDialogue 兜底保持不动（第
 | `LLM_MODEL`    | 服务端 | 选填，默认 `deepseek-chat`          |
 
 本地：复制 `.env.example` 成 `.env.local`（或 `.env`），填好三项。Vite 只注入 `VITE_*`，所以密钥不会进前端包。生产：Vercel → Project Settings → Environment Variables 添加三项，**不要**只在本地 `.env` 里配。`vercel.json` 的 SPA 回退按 Vercel 规则「filesystem 优先」执行，`api/` 函数先于 rewrites 命中，无需改回退规则；若部署后 `GET /api/chat` 返回 HTML，检查该规则是否排除了 `api/`。
+
 
 ### 28.6 开发者本地测试清单（照着敲）
 
@@ -2896,6 +2980,7 @@ npm run smoke     ✅ 1193 项断言全绿、控制台 0 错误（原 1173 零�
 
 对上一章的真实 AI 链路做一次三专家会诊。**零改动**：31 个 localStorage 键、8 项导航、PWA 策略、Supabase 同步、雅思 / CEFR / 语音层语义，以及 `configureGenerator()` 的自定义端点优先级。
 
+
 ### 29.1 code-review 五轴结论
 
 | 轴                      | 发现                                                                      | 处理                                                                                                                                                                                                                    |
@@ -2905,6 +2990,7 @@ npm run smoke     ✅ 1193 项断言全绿、控制台 0 错误（原 1173 零�
 | **React 规范（Required）** | 原实现用 `Promise.race` 只「忽略结果」，fetch 仍在飞；卸载后 `setStatus` / `update()` 仍会执行 | 全链路换成真正的 `AbortController`（见 29.2）                                                                                                                                                                                    |
 | 架构                     | `withTimeout` 变成死代码                                                     | 删除，由 `createRequestSignal()` 统一承担「超时 + 卸载」两个取消源                                                                                                                                                                       |
 | 可读性                    | 新增条件散落在多处                                                               | 收进一个 Hook + 一个信号工厂，`Dialogue.tsx` 只加两行守卫                                                                                                                                                                              |
+
 
 ### 29.2 React 最佳实践：卸载即取消
 
@@ -2968,6 +3054,7 @@ export function createRequestSignal(timeoutMs: number, external?: AbortSignal) {
    if (!isMounted() || signal.aborted) return   // 后续 update / awardXp / setSending 全部跳过
    ```
    `AiModeBadge` 的探测请求同样接入 `nextSignal()` + `isMounted()`。
+
 
 ### 29.3 系统排错：`npm run dev` 下 `/api/chat` 404
 
@@ -3059,6 +3146,7 @@ curl -X POST http://127.0.0.1:5173/api/chat -H "Content-Type: application/json" 
 # ⑤ 回归：npx tsc --noEmit && npm run build && npm run smoke
 ```
 
+
 ### 29.6 验收结果
 
 ```
@@ -3078,6 +3166,7 @@ npm run smoke     ✅ 1207 项断言全绿、控制台 0 错误（原 1193 零�
 ## 三十、对话打字机效果（Streaming / 30ms 定时器双路径，v1.7 增量）
 
 真实 LLM 有等待，Mock 没有。这一章只给「刚从 `/api/chat` 回来的那一条回复」装上逐字浮现的心跳，其余消息一律全文直出。**`api/chat.ts` 一行未改**（SHA-256 `1f2e56a3…` 前后一致）；31 个 localStorage 键、TTS 自动朗读、路由与降级策略零改动。
+
 
 ### 30.1 交付清单
 
@@ -3110,6 +3199,7 @@ npm run smoke     ✅ 1207 项断言全绿、控制台 0 错误（原 1193 零�
 ```
 
 > 为什么流式还要 `ReplyFieldExtractor`：`api/chat.ts` 的 SSE 是**原样透传**上游 delta，而上游按 system prompt 返回的是 `{reply, translation, feedback…}`。若把 delta 直接上屏，用户会看到 `{"reply":"Th...` 这种 JSON 源码。提取器只在 `"reply": "..."` 到达时吐出英文正文增量。
+
 
 ### 30.3 React 最佳实践：卸载必清理
 
@@ -3176,6 +3266,7 @@ const stream = await openDialogueReplyStream({ messages, level }, signal)
 
 > 注意：流式返回的是**纯 reply 文本**，不含 `feedback / hints / state`，因此它适合做「边生成边显示」，而完整的结构化输出仍需标准 JSON 路径。当前实现把两条路都备好，默认走不会丢字段的 B。
 
+
 ### 30.6 验收结果
 
 ```
@@ -3203,6 +3294,7 @@ api/chat.ts       ✅ SHA-256 `1f2e56a3…` 前后一致（本轮零改动）
 
 在接入真实 LLM 之前，把「等待」和「失败」两个状态补齐。**只改前端 UI 组件**，网络请求逻辑、后端接口、部署配置一律零改动。
 
+
 ### 31.1 设计定调（frontend-design）
 
 | 维度                  | 决策                                                                                                                            |
@@ -3214,6 +3306,7 @@ api/chat.ts       ✅ SHA-256 `1f2e56a3…` 前后一致（本轮零改动）
 | **字体**              | 沿用品牌 `.en-text`（Trebuchet MS / Segoe UI）与 Tailwind 字阶                                                                         |
 
 > ⚠️ **对技能铁律的刻意偏离**：`frontend-design` 要求引入非 system-ui 的独特展示字。本轮是对既有应用的**增量 UI 组件**，换字体会造成新旧气泡字形不一致；且 PWA 离线包不宜为两个小组件新增网络字体请求。因此保留品牌字体，把差异化预算全部投在**状态编排与文案**上。这是明确取舍，不是遗漏。
+
 
 ### 31.2 架构难点：错误在服务层就被吞掉了
 
@@ -3234,6 +3327,7 @@ api/chat.ts       ✅ SHA-256 `1f2e56a3…` 前后一致（本轮零改动）
 | ② 兜底  | `Dialogue` 在 `await generateDialogue()` 后，用只读的 `probeAiMode()`（60s 缓存、本轮已被服务层调用过，**不产生额外请求**）判断「探测为 live 却拿到 Mock」 | `unknown` → 通用友好文案            |
 
 `observeChatHttpStatus()` 带三重守卫（API 缺失 / `supportedEntryTypes` 不含 `resource` / 构造异常），任一不满足就静默退化为 no-op，界面照常走既有 Mock 流程 —— **不会白屏、不会崩溃、不会多一个请求**。Safari / Firefox 等不暴露 `responseStatus` 的浏览器会自动落到路径 ②，卡片与重试按钮照常可用，只是文案为通用版。
+
 
 ### 31.3 交付文件
 
@@ -3264,6 +3358,7 @@ api/chat.ts       ✅ SHA-256 `1f2e56a3…` 前后一致（本轮零改动）
 ```
 
 四点设计取舍：**①** 动效全部 CSS（只动 `transform` / `opacity` / `background-position`，不触发布局）；**②** 组件无 `setInterval`、无 `useEffect`，因此卸载时**没有任何需要清理的资源**（React 最佳实践）；**③** `role="status"` + `aria-live="polite"` 让读屏软件播报而不打断；**④** `prefers-reduced-motion: reduce` 下四个类统一 `animation: none`，推进轨变为静态细线，骨架仍可辨识。
+
 
 ### 31.5 错误码 → 文案映射
 
@@ -3298,6 +3393,7 @@ api/chat.ts       ✅ SHA-256 `1f2e56a3…` 前后一致（本轮零改动）
 
 另有断言保证 UI 组件层**没有新增任何 `fetch(` 调用**，且 `Dialogue.tsx` 里的网络调用、signal 与 Mock 降级路径原样保留。后续若有意改动网络层，需同步更新 `smoke.mjs` 的 `FROZEN` 基线表。
 
+
 ### 31.7 状态覆盖与自检（frontend-design 检查表）
 
 | 状态                  | 覆盖                                                                        |
@@ -3310,6 +3406,7 @@ api/chat.ts       ✅ SHA-256 `1f2e56a3…` 前后一致（本轮零改动）
 | 对比度                 | ✅ 正文沿用既有 `text-ink`(#1c2440) / 白底；提示文字 `text-mint-600` 压 `bg-mint-100/70` |
 | 卸载清理                | ✅ `dispose()` + `unsubscribe()`；骨架屏零定时器                                   |
 | 反 AI 味              | ✅ 无通用线性图标堆砌、无紫渐变、无三卡网格；记忆点 = 推进轨 +「小夜灯」错误卡                                |
+
 
 ### 31.8 开发者本地测试步骤
 
@@ -3375,6 +3472,7 @@ react_engine audit ✅ ThinkingSkeleton / AiErrorCard / aiErrorChannel 均 94/A
 
 `vercel dev` 需要 `vercel link` + 账号登录，本地常被卡住；而 Vite dev 本身**没有 Serverless 运行时**，直连 `/api/chat` 会 404（GET 甚至会把 `api/chat.ts` 当源码返回）。本轮把后端换成一台**纯本地 Express 服务**：不用登录、不用联网、不用云账号，一条命令同时起前后端。
 
+
 ### 32.2 架构：一份 handler，两处运行
 
 ```text
@@ -3402,6 +3500,7 @@ Vercel 生产：  /api/chat  ──►  api/chat.ts（Serverless 函数，原样
 - 15 秒超时、密钥脱敏、`fallback:true` 降级、SSE 透传、等级约束全部原样保留
 
 `server.ts` 只负责本地基础设施：加载 `.env.local` / `.env`（dotenv，`override:false` 保证系统环境变量优先）、`cors()`、`express.json()`、`/api/health`、`/api/chat`、`--mock` 内置假上游、404 / 错误中间件、`SIGINT`/`SIGTERM` 优雅退出。仅监听 `127.0.0.1`，不对外暴露。
+
 
 ### 32.3 新增依赖（全部 devDependencies）
 
@@ -3451,6 +3550,7 @@ server: {
 ```
 
 `concurrently` 的 `npm:<script>` 简写会自动展开为 `npm run <script>`，Windows 下比手写嵌套引号更稳。
+
 
 ### 32.5 启动与测试（照着敲）
 
@@ -3525,6 +3625,7 @@ npm run dev:mock        # 内置 OpenAI 兼容假上游，自动把 LLM_API_BASE
 npx tsc --noEmit && npm run build && npm run smoke
 ```
 
+
 ### 32.6 排障速查
 
 | 现象                                | 原因 / 处理                                                                                                                          |
@@ -3547,6 +3648,7 @@ npx tsc --noEmit && npm run build && npm run smoke
 
 `api/chat.ts` **原样保留**，本轮 SHA-256 仍是 `1f2e56a3…`；`vercel.json` 也未改动。本地 `server.ts` 不会进 `dist/`、不会被部署。生产密钥仍在 Vercel → Project Settings → Environment Variables 配置。
 
+
 ### 32.8 验收结果
 
 ```text
@@ -3563,6 +3665,7 @@ HTTP 接口        ✅ 非法入参 503 fallback / 未知路径 404 / SSE text/e
 > 冻结基线更新说明：上一轮 `smoke.mjs` 的 `FROZEN` 表把 `vite.config.ts` 与 `.env.example` 也钉死了。本轮用户**明确要求**修改这两个文件，因此把它们的 SHA-256 更新为 v1.8 新基线；`api/chat.ts`、三个前端服务层文件、`vercel.json` 这 5 个「网络请求逻辑 / 后端 / 部署配置」文件仍逐字节冻结。
 
 ---
+
 
 ## 三十三、全局错误边界：崩溃不再白屏（v1.9 增量 · 只改 UI 结构）
 
@@ -3607,6 +3710,7 @@ npx tsc --noEmit && npm run build && npm run smoke
 
 Vercel CLI 已彻底退场，生产改为 Netlify Functions。**本地调试仍然零云 CLI、零账号登录**，沿用 `npm run dev:full` 的纯 Express 方案。
 
+
 ### 34.1 改动清单
 
 | 文件                          | 改动                                                                                                                                                                                   |
@@ -3617,6 +3721,7 @@ Vercel CLI 已彻底退场，生产改为 Netlify Functions。**本地调试仍�
 | `vite.config.ts`            | 新增 `/.netlify/functions` 代理到 `127.0.0.1:3001`，保留 `/api`（health + legacy），**两条都不做 rewrite**                                                                                           |
 | `server.ts`                 | 改而复用 `netlify/functions/chat.ts` 的 `invokeChat()`；同时响应主路径与 legacy `/api/chat`                                                                                                        |
 | UI 文案                       | 错误观察正则、404/408/500 提示、AI 徽章与设置页同步到新路径与 Netlify 术语                                                                                                                                    |
+
 
 ### 34.2 关键设计决策
 
@@ -3647,6 +3752,7 @@ Vercel CLI 已彻底退场，生产改为 Netlify Functions。**本地调试仍�
 2. **Site settings → Environment variables** 添加 `LLM_API_KEY`（必填）、`LLM_API_BASE`（选填）、`LLM_MODEL`（选填）。⚠️ 绝对不要加 `VITE_` 前缀，否则密钥会进浏览器 bundle。
 3. 部署后验证：`curl https://<站点>/.netlify/functions/chat` 应返回 `{"ok":true,"mode":"live",...}` 而不是 HTML；设置页徽章变绿即代表真实 AI 已接入。
 4. `vercel.json` 与 `api/chat.ts` 原样保留作 legacy 记录，Netlify 不会读取它们；`.env.local` / `.env` 只服务本地。
+
 
 ### 34.4 本地调试（无需 Netlify CLI / 登录）
 
@@ -3703,6 +3809,7 @@ npm run smoke     ✅ 1302 断言全绿、控制台 0 错误、退出码 0（原
 2. 它**渲染在隔离的 inline frame 里**——官方原话 "your project's CSS can't affect the badge"，也就是说站点 CSS 无法作用于徽章内部。
 3. 因此**只靠 CSS 不能保证 100% 隐藏官方徽章**。下面按「根治 → 兜底」排优先级。
 
+
 ### 35.2 三种手段，按推荐顺序
 
 | 手段                  | 做法                                                                                               | 是否需要部署                 | 对官方徽章是否有效                                     |
@@ -3726,6 +3833,7 @@ npm run smoke     ✅ 1302 断言全绿、控制台 0 错误、退出码 0（原
 
 本项目 `index.html` 无内联脚本、`vite-plugin-pwa` 用了 `injectRegister: null`（不注入内联注册代码），构建产物都是同源外部 JS，因此 `script-src 'self'` 与现有 PWA 兼容；上线前仍建议用 DevTools Console 扫一遍 CSP 报错。
 
+
 ### 35.4 已落盘：全局样式的隐藏兜底
 
 `src/index.css` **末尾**（在 `prefers-reduced-motion` 之后，级联顺序靠后）新增一段规则：
@@ -3733,6 +3841,8 @@ npm run smoke     ✅ 1302 断言全绿、控制台 0 错误、退出码 0（原
 |   |   |   |   |   |
 | - | - | - | - | - |
 
+|  |  |  |  |  |
+| --- | --- | --- | --- | --- |
 - **选择器**：`html body :is(...)` 抬高特异性，覆盖 `#netlify-badge`、`.netlify-badge`、`netlify-badge` / `netlify-prelaunch-toolbar` 自定义元素、`[id*]` / `[class*]` / `[data-*]`、以及 `iframe[src|id|class|name|title*='Netlify']` 等四类宿主。
   - 用户已确认徽章宿主是**带 `netlify-badge` 类名的 div 或 iframe**，规则对标签不敏感（class 选择器命中任意元素），div 与 iframe 一网打尽。
   - 额外加入**宽口径 `[class*='netlify' i]`**，兼容 `netlify-badge-*` 等变体拼写；已核查本应用源码与构建产物中**没有任何自身含 "netlify" 的类名**，放宽后不会误伤界面元素。
@@ -3801,6 +3911,7 @@ IP 取值优先级：`x-nf-client-connection-ip`（Netlify 边缘写入，真实
 - 响应头带 `Retry-After`（等多久可以重试）、`X-RateLimit-Scope`（minute/day）、`X-RateLimit-Limit-*`；
 - ⚠️ **仍然带 `fallback: true`** —— 这是前端不崩溃的关键：服务层据此照旧回退本地 Mock，练习不中断，只是额外弹出一张友好卡片。
 
+
 ### 36.4 前端如何优雅接住（而不是白屏）
 
 链路是单向的，服务层**不反向依赖 UI 组件目录**（保持分层）：
@@ -3866,6 +3977,7 @@ npm run smoke     ✅ 第三十六章断言全绿、控制台 0 错误
 第三十六章不只读源码：它把 Netlify 函数**真跑起来**，连打 6 次 POST 验第 6 次的 429 契约与中文提示，换 IP 验分桶独立，验 GET 探测不消耗配额，把日配额调到 2 验「今日额度已用完」；前端侧验提示提取、一次性消费与非法 JSON 兜底。
 
 ## 三十七、Supabase RLS 复查加固（v2.3 增量）
+
 
 ### 37.1 复查结论：现状比需求宽了一格
 
@@ -3967,6 +4079,7 @@ fetch 拿到 401 / 429 / 500
 
 颜色只是辅助——语义永远由 `label + title + hint` 三行文字承载（无障碍要求：不能只靠颜色表达状态）。色板新增 `danger` 令牌（`#e13b42`），与既有 `coral` 区分严重程度；卡片新增 `data-severity` 属性，便于自动化测试断言。
 
+
 ### 38.4 涉及的文件
 
 | 文件                                 | 改动                                                                                                      |
@@ -3998,6 +4111,7 @@ npm run smoke     ✅ 第三十八章断言全绿、控制台 0 错误
 > 目标：把底部「发现新版本，点击刷新」提示改用 `virtual:pwa-register/react` 的 `useRegisterSW` hook 实现，  
 > 保持**唯一注册入口**、保持 prompt 策略不变、保持提示不遮挡底部导航栏。
 
+
 ### 39.1 为什么是「迁移」而不是「新增」
 
 `useRegisterSW` 的内部实现（`vite-plugin-pwa@0.21.2`）是这样的：
@@ -4027,6 +4141,7 @@ function useRegisterSW(options = {}) {
 所以本轮的正确做法是**把注册权整体移交**给 hook：`src/pwa/registerSW.ts` 不再调用 `registerSW`，  
 全应用只保留 `src/components/UpdatePrompt.tsx` 一处注册点。
 
+
 ### 39.2 改动清单
 
 | 文件                                   | 改动                                                                                                         |
@@ -4037,6 +4152,7 @@ function useRegisterSW(options = {}) {
 
 `vite.config.ts` 一字未改：`registerType: 'prompt'` / `skipWaiting: false` / `clientsClaim: false` /  
 `injectRegister: null` 全部保留，四条更新红线原样生效。
+
 
 ### 39.3 四条要求如何落地
 
@@ -4101,6 +4217,7 @@ npm run smoke     ✅ 第三十九章断言全绿、控制台 0 错误
 `commit(next, 'verify')`（S1→S2）、`commit({ ...record }, 'spell')`（S2.5→S3）、  
 `advance({ ...record, spellingTries: tries, spellingPassed: true })`（S3→下一词）。
 
+
 ### 40.2 落盘清单
 
 | 文件                                                  | 说明                                                              |
@@ -4133,6 +4250,7 @@ const decision = checkRateLimit(`eval:${clientIp(req.headers)}`, readRateLimitCo
 
 冒烟里用「把 chat 与 evaluate 打进同一个 bundle」的合并包做了实证：  
 评测桶打满后，同一 IP 的对话请求依然返回 **200**。
+
 
 ### 40.4 契约
 
@@ -4242,6 +4360,7 @@ Netlify → **Site settings → Environment variables** 确认 `LLM_API_KEY`（�
 | XP   | 只在「结束并总结」时发一次，走统一入口 `awardXp()`，事件 id = 日期 + 角色 → 天然幂等           |
 | 存储   | 对话内容只留在内存（会话内），**不新增 localStorage 键**（第 31 键不变）                  |
 | 入口   | 首页「学习」页的入口卡；**底部导航仍是 8 项**（与 China Learner Track 同策略）            |
+
 
 ### 41.2 六条大肥鱼（纯代码 SVG，零外部素材）
 
@@ -4372,6 +4491,7 @@ Netlify → **Site settings → Environment variables** 确认 `LLM_API_KEY`（�
 - 429 契约与其它端点一致：`{ ok:false, fallback:true, rateLimited:true, error:'鱼塘太挤了，请稍后再聊' }`
   - `Retry-After` + `X-RateLimit-*`；前端照样让本地演示大肥鱼顶上并弹一张友好错误卡。
 
+
 ### 41.6.1 安全审计：wire 协议 role 漏洞（已修复）
 
 用 systematic-debugging 的四阶段法（取证 → 建可红可绿探针 → 假设 → 单点修复）  
@@ -4417,6 +4537,7 @@ abort 竞态被 UI 禁用堵死、限流 IP 分桶。
 
 > 红线不变：不新增 localStorage 键、不碰 XP 与五步闭环、不动底部 8 项导航。
 
+
 ### 41.6.3 移动端长录音：断气问题排查（systematic-debugging）
 
 **症状**：手机上麦克风「录不长」——说几句就自动停、切个后台就断。
@@ -4451,6 +4572,7 @@ abort 竞态被 UI 禁用堵死、限流 IP 分桶。
 冒烟第四十一节新增 4 条静态断言（时长阈值 / 时间补偿与动态计时 / resultIndex 修复 /  
 hook 显式声明）+ 1 条运行时断言（尾段 final 不丢字）；连同一轮内置 ASR  
 回归，共 1533 条全绿。独立探针另实测息屏 300ms 补偿与两段续接文字，验证后清理。
+
 
 ### 41.6.4 Android 真机录音不可用：内置服务端转写（systematic-debugging + best-practices）
 
@@ -4517,6 +4639,7 @@ hook 显式声明）+ 1 条运行时断言（尾段 final 不丢字）；连同�
 > 边界：这是**录完上传**，不是流式分片 ASR；单次录音上限 60s。  
 > 浏览器识别成功时仍优先用识别（延迟更低），只有它失败才走这条路。
 
+
 ### 41.6.5 升级为 Desktop Pet：悬浮电子宠物（frontend-design + best-practices）
 
 **定调**：目的——让“选完鱼就盯着一张立绘”变成“有条小生物一直待在输入台旁”；  
@@ -4577,6 +4700,7 @@ thinking（sending || summarizing）> speaking（voice.speakingKey）> idle
   非遮挡布局、角色分岔、随机短句、开关、兜底归位、运行时 happy / thinking / 显隐）；  
   `npm run build` 通过，PWA precache 15 项，立绘资源零新增。
 
+
 ### 41.6.6 立绘去背景板：从「摄影棚底板」到「透明悬浮件」
 
 **起因**：41.6.5 把大肥鱼变成悬浮电子宠物后，原立绘的暖白摄影棚底板成了罪魁祸首——  
@@ -4597,6 +4721,7 @@ thinking（sending || summarizing）> speaking（voice.speakingKey）> idle
 `npm run smoke` 1535 条全绿，`npm run build` 通过。
 
 > 附带收益：去背景后立绘在深色卡片上也能用，不再被暖白底板“框住”。
+
 
 ### 41.6.7 移动端录音失效：系统排错与修复（systematic-debugging + 兼容降级 UI）
 
@@ -4664,6 +4789,7 @@ fun ensureMic() {
 - 浏览器 / TWA 真机仍需人工复核一次：首次权限弹窗、拒绝权限后的文字输入路径、  
   微信内置浏览器的提示文案。
 
+
 ### 41.6.8 手动录音模式：Start / Stop 只由用户点击（systematic-debugging + best-practices + mobile-ui-ux）
 
 > 现象：所有用到麦克风的模块（主对话页、鱼塘自由对话、Word Lab 发音评测、S2.5 跟读、试音台）  
@@ -4727,6 +4853,7 @@ const onEnd = () => {
   「用户没点停止不写入输入框」的端到端回归）；`npm run build` 通过；
 - 性能体检：两处麦克风组件 94/100 A 与 88/100 B（WARN 为既有 eslint-disable 与  
   Next.js 专属 error.tsx 检查，本项目已有全局 ErrorBoundary，属误报）。
+
 
 ### 41.6.9 移动端找不到登录入口：首页云同步横幅（systematic-debugging + mobile-ui-ux）
 
@@ -4804,6 +4931,7 @@ const onEnd = () => {
 - `npm run smoke`：**1568 条全绿**（新增 10 条：静态契约 5 条 + 运行时行为 5 条）；
 - `npm run build` 通过。
 
+
 ### 41.6.10 文化板块信息流改造（mobile-hifi-prototype + frontend-design + best-practices）
 
 #### 设计定调
@@ -4854,6 +4982,7 @@ const onEnd = () => {
 - 红灯探针 8 RED → 9 GREEN，验证后清理；
 - `npm run smoke`：**1577 条全绿**（新增 8 条信息流契约护栏）；`npm run build` 通过。
 
+
 ### 41.6.11 文化视频储量补强：44 → 50 条（vercel-react-best-practices）
 
 #### 目标与上限
@@ -4898,6 +5027,7 @@ const onEnd = () => {
 - `npm run smoke`：**1580 条全绿**（新增 3 条储量护栏：50 条上限 / playlist-only 零编造 / 最薄主题补强）；
 - `npm run build` 通过。
 
+
 ### 41.7 落盘清单
 
 | 文件                                                                            | 说明                                                                                                                       |
@@ -4926,6 +5056,7 @@ const onEnd = () => {
 | `src/lib/speech.ts`（改）                                                        | 手动录音模式：移除静音/时长/maxMs 定时器，`finish('emit')` 唯一出口只在用户 stop 可达；原生 onend 续听；`resultIndex` 修复 + `blobToWav()`（16kHz 单声道 PCM）保留 |
 | `src/components/PronunciationLab.tsx` / `src/components/WordReadAloud.tsx`（改） | Word Lab 两处录音改手动两态：停止态变红 + `pron-mic-live` 波形，移除静音/时长自动收尾，跟读倒计时改已录正计时                                                    |
 | `src/pages/Dialogue.tsx` / `src/components/VoiceDiagnostics.tsx`（改）           | 主对话页与试音台改手动两态文案与 `pulse-ring` 录音提示；按钮 aria-label 区分开始/停止                                                                 |
+
 | `src/components/SyncBanner.tsx`（新）                                            | 首页顶部云同步横幅三态：未登录告警 / 已同步状态 / 未配置如实说明；整条可点、热区 ≥44px                                                                        |
 | `src/components/SyncLoginDialog.tsx`（新）                                       | 移动端登录注册弹窗：底部 sheet、16px 输入字号、`role="dialog" aria-modal="true"`、Esc 可关                                                    |
 | `src/pages/CultureHub.tsx`（重写）                                                | 信息流主界面：圆角搜索 + 5 栏新闻式 Tab + 快讯 + 大图蒙版头条 + 视频混排 + 齿轮收纳抽屉；所有卡片走 `openVideo` 唯一跳转出口                                          |
@@ -4934,6 +5065,7 @@ const onEnd = () => {
 | `src/lib/supabase.ts`（改）                                                      | 删除打印 URL / Key 前缀的两条 `console.log`（生产环境配置泄露）                                                                             |
 | `src/pages/Home.tsx`（改）                                                       | 挂载 `SyncBanner`（真机第一屏即可见登录入口）                                                                                            |
 | `.env.example`（改）                                                             | v2.8：补 `LLM_ASR_URL` 与 `ASR_RATE_LIMIT_*`，说明四个函数桶互相隔离                                                                    |
+
 
 ### 41.8 本地联调
 
@@ -4965,6 +5097,7 @@ for i in $(seq 1 7); do
     -d '{}'
 done
 ```
+
 
 ### 41.6.12 词场 UI/UX 重构：极简看板 + 沉浸式背词（frontend-design + best-practices + mobile-hifi-prototype）
 
@@ -5002,6 +5135,7 @@ done
 - `npm run build`：通过（chunk 警告是既有 1.27MB 基线，本次零新增依赖）。
 - React 规范体检：94/100 A 级（唯一 WARN 是 Next.js 专属 error.tsx 检测，Vite 项目已有双层 ErrorBoundary，误报）。
 
+
 ### 41.6.13 词场首屏精简：双卡并列 + 更多入口 + 隐藏五步声明
 
 只改渲染层的三处 UI，最小 diff；数据 / 配额 / 路由 / S0–S5 / 存储键 / 导航全部未动。
@@ -5025,6 +5159,71 @@ done
 
 `npx tsc --noEmit` ✅；`npm run build` ✅；`npm run smoke` ✅ 1580 断言全绿、0 控制台错误；
 静态布局契约 11/11（`grid-cols-1 sm:grid-cols-2`、热区 ≥44px、更多按钮唯一、FIVE_STEPS 保留等）。
+
+### 41.6.14 PWA 更新链路补严（prompt 语义不变）
+
+三轮任务 A/B/C 的 A 轮。用户确认三点：抽新模块 / manifest 保持现状 / controllerchange 只置标记。
+
+#### 改动（2 个文件）
+
+1. **新增 `src/pwa/updateChecker.ts`**：`startUpdateChecks()` 拿**已注册**的 SW 调 `registration.update()`，
+   补齐三条检测时机——挂载即探一次、`setInterval` 默认 60min 周期（`UPDATE_CHECK_INTERVAL_MS`）、
+   `visibilitychange` 回前台与 `online` 恢复网络各查一次（`UPDATE_CHECK_THROTTLE_MS`=60s 节流）。
+   `controllerchange` 只置 `controllerChangedThisSession` 标记（下次导航生效），不重载、不打断对话/录音。
+   全部异步 + try/catch 静默，返回 cleanup 函数给组件卸载清理。
+2. **`src/components/UpdatePrompt.tsx`**：唯一注册点仍是 `useRegisterSW`；effect 里挂/卸 `startUpdateChecks()`；
+   `onNeedRefresh` + `dismissedInSession` ref 实现「稍后后本会话不再弹，冷启动可再弹」的幂等。
+   全部被冒烟锁定的文案 / testid / `bottom-[` / `updateServiceWorker(true)` 一字未改。
+
+#### 边界
+
+- `registerType:'prompt'` / `skipWaiting:false` / `clientsClaim:false` 全不动；不新增依赖、不改缓存分层、不强制刷新。
+- `manifest` 的 `id:'./'` / `start_url:'./'` 按用户确认**保持现状**（守 `smoke:3770` 与子目录部署）。
+- `netlify.toml` 缓存头现状已满足，未改。
+
+#### 踩坑（systematic-debugging）
+
+- 冒烟读 `dist/assets`，必须**先 build 再 smoke**，否则拿旧产物的假绿灯。
+- 首轮红灯：`needRefresh=true` 断言失败，根因是测试桩的 `serviceWorker` 只有 `register`，
+  没有 `getRegistration`/`addEventListener` → 模块 addEventListener 抛错使组件崩溃。
+  修根因（模块内做 API 存在性守卫、残缺环境静默降级），不改测试桩、不改断言。
+
+#### 验证
+
+`tsc` ✅ / `build` ✅ / `smoke` ✅ 1580 断言全绿、0 控制台错误；静态契约 11/12
+（唯一 ✗ 是自检朴素正则把注释里的「skipWaiting」当代码，已改注释措辞消除歧义，代码本就干净）。
+
+### 41.6.15 成长 + 进度融合为「我的成长」（三轮任务 B）
+
+用户确认：①断言改「点 Tab 后断言」②导航 8→7 项 ③要求 replace 机制。
+
+#### replace 的处理（重要边界）
+
+`navigate` 是 `useAppStore` 里的纯 React state 机（`setView`+`setParams`+`scrollTo`），**无 history / URL / replace**
+语义，而红线禁止改 `src/store/**`。故不改 store，用等价实现：`progress` / `growth` / `achievements`
+三个旧 view 全渲染同一个 `GrowthHub`，由组件内 `view` 判定默认 Tab（progress→趋势 / achievements→成就 / 其余→概览）。
+三个旧路径都不 404、不空白、落在同一页。真正的 `history.replaceState` URL 路由属架构改动，未擅自引入。
+
+#### 改动（4 个文件）
+
+1. **新增 `src/pages/GrowthHub.tsx`**：三 Tab（概览 / 趋势 / 成就），默认按 view 落点，条件渲染只挂载当前 Tab；
+   一次性读 `useApp`/`useDerived`/`services/growth`，Tab 切换不重拉不重算。三块内容从原
+   `Progress.tsx`/`GrowthHome.tsx`/`AchievementsPage.tsx` 逐字搬运（保留全部 testid：growth-home /
+   growth-daily-goal / growth-heatmap / growth-today-ledger / achievements-page / hidden-locked / achievement-card）。
+   **只读展示**：无写键、无 awardXp 调用（仅两处展示文案提到 awardXp）。
+2. **`src/App.tsx`**：三旧 view 全指向 `<GrowthHub />`，移除三个旧组件 import（旧文件保留不删）。
+3. **`src/components/Layout.tsx`**：NAV 8→7，删「进度」，保留项改「我的成长」(trophy)；`GROWTH_VIEWS` 加 `progress`。
+4. **`smoke.mjs`**：进度/成长断言改为先 `clickExact('趋势')` 再断言；导航断言 8→7；总数仍 1580。
+
+#### 内容对照（逐项无缺失，静态核验全过）
+
+- 概览：等级曲线 / 连续活跃 / 最长 / 冻结卡 / 今日 XP / 今日目标 / 90 天热力图 / 最近成就 / 今日账本 / XP 规则 / MVP 限制
+- 趋势：四项统计 / 雅思段位阶梯 / 四维度参考分 / 发音趋势 / 今日目标环 / 7 天活跃 / 冒险路径 / 成就徽章 / 最近对话
+- 成就：/27 计数 / 六分类 Tab / 27 枚三态 / 隐藏成就 ??? 与 4 枚锁定守卫
+
+#### 验证
+
+`tsc` ✅ / `build` ✅ / `smoke` ✅ 1580 断言全绿、0 控制台错误；导航 7 项；三旧路径均到合并页。
 
 ### 41.9 上线前
 
