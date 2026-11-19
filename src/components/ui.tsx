@@ -29,6 +29,10 @@ const PATHS: Record<string, ReactNode> = {
   target: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.2" /></>,
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5.5l3.5 2" /></>,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.6h.01" /></>,
+  /** [新增] 账号：云同步登录横幅与登录弹窗用 */
+  user: <><circle cx="12" cy="8" r="3.6" /><path d="M4.8 20a7.4 7.4 0 0 1 14.4 0" /></>,
+  /** [新增] 云端：已同步状态用 */
+  cloud: <><path d="M7 18.5A4.2 4.2 0 0 1 6.4 10a5.6 5.6 0 0 1 10.7-1.2A3.9 3.9 0 0 1 17.6 18.5Z" /><path d="M12 12v5.5M9.8 14.8 12 12.5l2.2 2.3" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
   text: <><path d="M4 6h16M4 11h13M4 16h16M4 21h9" /></>,
   flag: <><path d="M5 21V4M5 4h11l-1.5 3.5L16 11H5" /></>,

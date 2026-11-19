@@ -4699,6 +4699,81 @@ const onEnd = () => {
 - 性能体检：两处麦克风组件 94/100 A 与 88/100 B（WARN 为既有 eslint-disable 与
   Next.js 专属 error.tsx 检查，本项目已有全局 ErrorBoundary，属误报）。
 
+### 41.6.9 移动端找不到登录入口：首页云同步横幅（systematic-debugging + mobile-ui-ux）
+
+#### 症状
+
+手机上的 PWA / APK 里找不到任何「登录 / 注册」入口，用户以为应用没有账号功能，
+数据只能留在本机，换设备就丢。
+
+#### 根因（取证链，不是猜测）
+
+| # | 根因 | 证据 |
+|---|---|---|
+| C1 | **登录入口只挂在设置页末尾** | `CloudSyncCard` 唯一挂载点是 `Settings.tsx`，且前面隔着三十多个存储键的清单清单 |
+| C2 | **首页零登录入口** | `Home.tsx` 全文没有任何账号相关组件；真机首屏完全看不到云同步概念 |
+| C3 | **未配置时直接不渲染登录表单** | `sync.configured === false` 时只剩一条黄条，表单分支整块不挂载 |
+| C4 | **构建期注入其实是好的** | `dist/assets/*.js` 里能搜到 Supabase URL 与 `sb_publishable_*`，说明**不是**环境变量缺失，而是入口没暴露 |
+| C5 | **调试日志泄露配置** | `supabase.ts` 有两条 `console.log` 直接打印 URL 与 Key 前缀，生产构建会进浏览器控制台 |
+
+红灯探针 `login-entry-probe.mjs` 直接渲染真实 `Home` 组件，修复前**五连 RED**：
+横幅不存在 / 文案缺失 / 点击无反应 / 弹窗不存在 / 弹窗无输入框。
+
+#### 修复
+
+**1. 首页横幅（新增 `src/components/SyncBanner.tsx`）**
+
+三态渲染，整条可点、热区 ≥44px：
+
+| 状态 | 呈现 |
+|---|---|
+| 未登录 | `⚠️ 数据仅存于本机，换设备会丢失` + 「点击登录同步云端」→ 点开登录弹窗 |
+| 已登录 | 收成安静的「已同步到云端」状态条 → 点击跳设置页账号区块 |
+| 未注入 Supabase | 如实说明「当前版本未接入云同步，数据仍完整保存在本机」，**不假装能登录** |
+
+**2. 登录弹窗（新增 `src/components/SyncLoginDialog.tsx`）**
+
+底部 sheet 形态（移动端惯例），`max-h-[86vh]` 给键盘留空间，输入框 `16px` 字号
+避免 iOS 聚焦时页面自动放大，`role="dialog" aria-modal="true"`，Esc 可关。
+
+**3. 云会话提升为模块级单例（改 `src/hooks/useSyncData.ts`）**
+
+首页横幅与设置页账号卡片必须读**同一份**会话。若各调一次 `useSyncData()`，
+`onAuthStateChange` 会被订阅多次，登录时 `handleSignedIn` 跑多遍 → 重复 fetchCloud +
+重复推送。现在会话订阅与会话级状态都是模块级单例，React 侧用 `useSyncExternalStore` 订阅。
+
+**4. 清掉泄露日志（改 `src/lib/supabase.ts`）**
+
+删掉两条打印 URL / Key 前缀的 `console.log`。
+
+#### 手机上到底要不要卸载重装？
+
+**结论：先刷新，不够再卸载重装。**
+
+| 你的安装形态 | 该怎么做 |
+|---|---|
+| 浏览器「添加到主屏幕」（PWA） | **不用卸载**。关掉 App 重开 → 首页顶部出现横幅；看到「发现新版本，点击刷新」点一下即可 |
+| TWA / APK（包了同一个网址） | **先刷新**：App 内下拉刷新或完全退出重开。若横幅仍不出现，才需要卸载重装 |
+
+判断依据：更新提示是 `registerType: 'prompt'` + `skipWaiting: false`，
+新 SW 进入 `waiting` 才会弹出「发现新版本，点击刷新」，**由用户点击才接管**，
+不会静默刷新、不会自动 reload。所以刷新/重开就能拿到新版本。
+
+⚠️ 但如果手机上装的是**很久以前**的 APK，且它指向的域名已经指向了**另一套构建**，
+那刷新拿到的还是旧包 —— 这时必须卸载重装，或确认 APK 的 `assetlinks.json` 仍指向当前部署。
+
+排障三步：
+1. 打开 App → 首页顶部有横幅吗？没有 → 大概率是旧包，回到第 2 步；
+2. 有横幅但点不开 → 检查是否浏览器禁用了弹窗，或是否为微信内置浏览器；
+3. 横幅显示「未接入云同步」→ 说明构建时没注入 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`，
+   需在 Netlify 后台补环境变量后**重新部署**（Vite 变量是构建期注入，改环境变量不会热更新）。
+
+#### 验收
+
+- 红灯探针：修复前 5 条 RED → 修复后 5 条 GREEN，验证后清理；
+- `npm run smoke`：**1568 条全绿**（新增 10 条：静态契约 5 条 + 运行时行为 5 条）；
+- `npm run build` 通过。
+
 ### 41.7 落盘清单
 
 | 文件 | 说明 |
@@ -4727,6 +4802,11 @@ const onEnd = () => {
 | `src/lib/speech.ts`（改） | 手动录音模式：移除静音/时长/maxMs 定时器，`finish('emit')` 唯一出口只在用户 stop 可达；原生 onend 续听；`resultIndex` 修复 + `blobToWav()`（16kHz 单声道 PCM）保留 |
 | `src/components/PronunciationLab.tsx` / `src/components/WordReadAloud.tsx`（改） | Word Lab 两处录音改手动两态：停止态变红 + `pron-mic-live` 波形，移除静音/时长自动收尾，跟读倒计时改已录正计时 |
 | `src/pages/Dialogue.tsx` / `src/components/VoiceDiagnostics.tsx`（改） | 主对话页与试音台改手动两态文案与 `pulse-ring` 录音提示；按钮 aria-label 区分开始/停止 |
+| `src/components/SyncBanner.tsx`（新） | 首页顶部云同步横幅三态：未登录告警 / 已同步状态 / 未配置如实说明；整条可点、热区 ≥44px |
+| `src/components/SyncLoginDialog.tsx`（新） | 移动端登录注册弹窗：底部 sheet、16px 输入字号、`role="dialog" aria-modal="true"`、Esc 可关 |
+| `src/hooks/useSyncData.ts`（改） | 云会话提升为**模块级单例**：`useSyncExternalStore` + 全应用只订阅一次 `onAuthStateChange` |
+| `src/lib/supabase.ts`（改） | 删除打印 URL / Key 前缀的两条 `console.log`（生产环境配置泄露） |
+| `src/pages/Home.tsx`（改） | 挂载 `SyncBanner`（真机第一屏即可见登录入口） |
 | `.env.example`（改） | v2.8：补 `LLM_ASR_URL` 与 `ASR_RATE_LIMIT_*`，说明四个函数桶互相隔离 |
 
 ### 41.8 本地联调

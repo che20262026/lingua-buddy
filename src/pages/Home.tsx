@@ -7,6 +7,7 @@ import { speak } from '../lib/speech'
 import { Card, Chip, EmptyState, Icon, Loader, ProgressRing, SectionTitle } from '../components/ui'
 /** [CEFR 等级层] 每日计划的今日推荐读取 active 等级，不读 recommended */
 import { recommendDailyTask } from '../services/dailyPlan'
+import { SyncBanner } from '../components/SyncBanner'
 
 const MIN_CHARS = 30
 
@@ -77,6 +78,9 @@ export function Home() {
 
   return (
     <div className="space-y-5">
+      {/* [云同步] 未登录告警横幅：真机第一屏就能看见「数据只在本机」，点一下直接登录 */}
+      <SyncBanner />
+
       {/* Hero */}
       <section className="animate-in overflow-hidden rounded-[28px] bg-gradient-to-br from-brand-500 via-brand-600 to-[#5b46c9] p-6 text-white shadow-float sm:p-8">
         <Chip tone="slate" className="bg-white/20 text-white">✦ 原创角色扮演 · 本地运行</Chip>

@@ -12,8 +12,7 @@ const url = (import.meta.env.VITE_SUPABASE_URL || '').trim()
 const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim()
 
 export const isSupabaseConfigured = Boolean(url && anonKey)
-console.log("读取到的Supabase URL 是:",url)
-console.log("当前读取到的Key开头:",anonKey.substring(0,15)+"...")
+/* 不打印 URL / Key 前缀：生产构建里这行会进浏览器控制台，属于无谓的信息泄露 */
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(url, anonKey, {
       auth: {

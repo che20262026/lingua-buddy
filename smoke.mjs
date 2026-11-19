@@ -4061,6 +4061,31 @@ try {
   assert(fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('二十七、'),
   'README 沉淀前端接入与冲突处理说明')
 
+  /* ---------- [移动端登录入口] 首页横幅 + 单例会话 + 禁止打印密钥 ---------- */
+  const sbBanner = fs.readFileSync(path.join(root, 'src/components/SyncBanner.tsx'), 'utf8')
+  const sbLoginDlg = fs.readFileSync(path.join(root, 'src/components/SyncLoginDialog.tsx'), 'utf8')
+  const sbHomeSrc = fs.readFileSync(path.join(root, 'src/pages/Home.tsx'), 'utf8')
+  assert(sbHomeSrc.includes("import { SyncBanner }") && sbHomeSrc.includes('<SyncBanner />'),
+    '首页挂载 SyncBanner：真机第一屏就能看见登录入口，而不是藏在设置页末尾')
+  assert(sbBanner.includes('data-testid="sync-banner"') && sbBanner.includes('data-testid="sync-banner-synced"')
+    && sbBanner.includes('data-testid="sync-banner-unconfigured"'),
+    '横幅三态齐备：未登录告警 / 已同步状态 / 未配置如实说明')
+  assert(sbBanner.includes('数据仅存于本机') && sbBanner.includes('换设备会丢失')
+    && sbBanner.includes('点击登录同步云端'),
+    '横幅文案点明「数据只在本机、换设备会丢失」并给出登录出路')
+  assert(sbBanner.includes('min-h-[44px]') && sbBanner.includes('<SyncLoginDialog')
+    && sbBanner.includes('setDialogOpen(true)'),
+    '横幅整条可点、热区 ≥44px，点击直接弹登录/注册弹窗')
+  assert(sbLoginDlg.includes('data-testid="sync-login-dialog"') && sbLoginDlg.includes('role="dialog"')
+    && sbLoginDlg.includes('aria-modal="true"') && sbLoginDlg.includes('!text-[16px]'),
+    '登录弹窗是底部 sheet 形态、语义完整，输入框 16px 避免 iOS 聚焦自动放大')
+  assert(sbLoginDlg.includes('!sync.configured') && sbLoginDlg.includes('data-testid="sync-login-not-configured"'),
+    '未注入 Supabase 配置时如实说明，绝不假装能登录')
+  assert(sbHook.includes('useSyncExternalStore') && sbHook.includes('subscribeShared')
+    && sbHook.includes('getSharedSnapshot') && sbHook.includes('authSubscribed'),
+    '云会话提升为模块级单例：首页横幅与设置页共用一份订阅，不重复请求')
+  assert(!sbClient.includes('console.log'), 'supabase.ts 不再打印 URL / Key 前缀（避免生产环境泄露配置）')
+
   /* ============================================================
    * 二十八、真实 AI Serverless 接口 + generateDialogue 改造
    * ============================================================ */
@@ -6493,6 +6518,29 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     {
       clickExact('学习', '回到学习页')
       await tick(200)
+      /* [移动端登录入口] 真渲染首页：横幅必须可见、可点开登录弹窗 */
+      const syncBanner = document.querySelector('[data-testid="sync-banner"]')
+        ?? document.querySelector('[data-testid="sync-banner-unconfigured"]')
+      assert(!!syncBanner, '首页顶部出现云同步横幅（未登录时是告警条，未配置时如实说明）')
+      const syncBannerText = syncBanner.textContent || ''
+      assert(/本机|未接入/.test(syncBannerText) && /登录|云同步/.test(syncBannerText),
+        `运行时：横幅文案点明数据归属与出路（实际=${syncBannerText.slice(0, 50)}）`)
+      const realBanner = document.querySelector('[data-testid="sync-banner"]')
+      if (realBanner) {
+        fire(realBanner)
+        await tick(120)
+        const loginDlg = document.querySelector('[data-testid="sync-login-dialog"]')
+        assert(!!loginDlg && loginDlg.getAttribute('role') === 'dialog'
+          && loginDlg.getAttribute('aria-modal') === 'true',
+          '运行时：点击首页横幅弹出登录/注册弹窗')
+        assert(!!document.querySelector('[data-testid="sync-login-dialog"] input[type="email"]')
+          && !!document.querySelector('[data-testid="sync-login-dialog"] input[type="password"]'),
+          '运行时：登录弹窗含邮箱与密码输入框')
+        const dlgText = loginDlg.textContent || ''
+        assert(/登录/.test(dlgText) && /注册/.test(dlgText),
+          '运行时：弹窗同时提供登录与注册入口')
+      }
+
       const entry = document.querySelector('[data-testid="home-freetalk-entry"]')
       assert(!!entry, '首页出现「大肥鱼自由对话」入口卡（底部导航仍是 8 项）')
       fire(entry)
