@@ -31,8 +31,8 @@ export type FatFishAccent = 'en-US' | 'en-GB' | 'en-AU'
 
 /**
  * 朗读时的专属动作：
- *   bounce 精灵式高频蹦跳 / sway 萝莉式左右摇摆 / float 御姐式缓慢浮动
- *   jitter 社畜式疲惫抖动 / rock 摇滚式甩头 / bob 冲浪式随浪起伏
+ *   bounce 精灵式高频蹦跳 / sway 青春式左右摇摆 / float 工作式缓慢浮动
+ *   jitter 干饭式兴奋抖动 / rock 摇滚式甩头 / bob 冲浪式随浪起伏
  */
 export type FatFishMotion = 'bounce' | 'sway' | 'float' | 'jitter' | 'rock' | 'bob'
 

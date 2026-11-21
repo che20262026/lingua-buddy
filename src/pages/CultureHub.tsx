@@ -1,5 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../store/useAppStore'
+/** [内容扩充] 55 条合规视频 + 20 部电影演示卡：动态 import 按需加载 */
+import type { CultureVideo } from '../cultureTypes'
+import type { MovieEntry } from '../data/expanded/moviesCatalog'
+import { CatalogPager, MovieCard } from '../components/CatalogBits'
+import { MoviePlayerModal } from '../components/MoviePlayerModal'
 import { CULTURE_SOURCE_NOTICE, THEME_LABELS } from '../data/cultureSeed'
 import { filterVideos, groupByTheme, hasValidProvenance } from '../services/cultureCurator'
 import type { CultureTheme } from '../cultureTypes'
@@ -56,13 +61,15 @@ function ThreePaths() {
  * 「推荐」= 全部；「要闻」= 历史地标 + 科学自然；「影视」= 艺术媒体；
  * 「文化研讨」= 日常生活 + 工作社交；「节庆」= 节日习俗。
  */
-type FeedTab = 'recommend' | 'headline' | 'screen' | 'seminar' | 'festival'
+type FeedTab = 'recommend' | 'headline' | 'screen' | 'seminar' | 'festival' | 'movie'
 const FEED_TABS: Array<{ id: FeedTab; label: string; themes: CultureTheme[] }> = [
   { id: 'recommend', label: '推荐', themes: [] },
   { id: 'headline', label: '要闻', themes: ['history-landmarks', 'science-nature'] },
   { id: 'screen', label: '影视', themes: ['arts-media'] },
   { id: 'seminar', label: '文化研讨', themes: ['daily-life', 'work-social'] },
   { id: 'festival', label: '节庆', themes: ['festivals'] },
+  /** [内容扩充] 电影演示卡为独立分类：不进 6 主题分组，不参与白名单视频筛选 */
+  { id: 'movie', label: '电影', themes: [] },
 ]
 
 export function CultureHub() {
@@ -71,6 +78,36 @@ export function CultureHub() {
   const [keyword, setKeyword] = useState('')
   const [tab, setTab] = useState<FeedTab>('recommend')
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  /* ---------------- [内容扩充] 动态 import：扩展视频 + 电影演示卡 ---------------- */
+  const [expandedVideos, setExpandedVideos] = useState<CultureVideo[]>([])
+  const [movies, setMovies] = useState<MovieEntry[]>([])
+  const [selectedMovie, setSelectedMovie] = useState<MovieEntry | null>(null)
+  useEffect(() => {
+    let alive = true
+    Promise.all([
+      import('../data/expanded/cultureCatalog'),
+      import('../data/expanded/moviesCatalog'),
+    ]).then(([vid, mov]) => {
+      if (!alive) return
+      setExpandedVideos(vid.EXPANDED_VIDEOS)
+      setMovies(mov.MOVIES_BY_RATING)
+    }).catch(() => { /* 扩展目录加载失败不影响原有 50 条种子视频 */ })
+    return () => { alive = false }
+  }, [])
+
+  const EXT_PAGE_SIZE = 12
+  const [extPage, setExtPage] = useState(0)
+  const extTotalPages = Math.max(1, Math.ceil(expandedVideos.length / EXT_PAGE_SIZE))
+  const extPageItems = useMemo(
+    () => expandedVideos.slice(Math.min(extPage, extTotalPages - 1) * EXT_PAGE_SIZE,
+      (Math.min(extPage, extTotalPages - 1) + 1) * EXT_PAGE_SIZE),
+    [expandedVideos, extPage, extTotalPages])
+
+  /** 扩展视频不在 store 里（无单条 ID），点击走官方播放列表外链，不进 WatchPage */
+  const openExtendedVideo = (url: string) => {
+    try { window.open(url, '_blank', 'noopener,noreferrer') } catch { /* 弹窗被拦截时静默 */ }
+  }
 
   // [CEFR 等级层] 视频模块的等级基准统一从 LevelFilterService 读取，页面只透传 activeLevel
   const targetCefr = activeLevel(data.levelPreference, 'video')
@@ -118,6 +155,7 @@ export function CultureHub() {
   const videos = allItems.filter((v) => v.id !== hero?.id && !briefs.includes(v))
 
   return (
+    <>
     <div className="animate-in space-y-4">
       {/* ---------- 0. 轻量页头：保留品牌定位文案，头条式排版不占黄金位 ---------- */}
       <div className="flex flex-wrap items-end justify-between gap-2 px-1">
@@ -127,7 +165,7 @@ export function CultureHub() {
             看一段真实英语，聊一层文化语境
           </h1>
         </div>
-        <Chip tone="coral" className="!px-2.5 !py-0.5 !text-[10px]">{total} 个视频 · 已看 {watched}</Chip>
+        <Chip tone="coral" className="!px-2.5 !py-0.5 !text-[10px]">{total + expandedVideos.length} 个视频 · 已看 {watched}</Chip>
       </div>
 
       {/* ---------- 1. 顶部：圆角搜索 + 横滑分类 Tab ---------- */}
@@ -250,8 +288,23 @@ export function CultureHub() {
         </Card>
       </section>
 
-      {/* ---------- 3. 信息流主体：快讯 → 大图头条 → 视频混排 ---------- */}
-      {allItems.length === 0 ? (
+      {/* ---------- 3a. [内容扩充] 电影 Tab：官方预告 + 正版平台跳转看全片 ---------- */}
+      {tab === 'movie' && (
+        <section data-testid="culture-movie-list" className="space-y-2.5">
+          <div className="cf-feed-block rounded-2xl border border-sun-100 bg-sun-100/40 px-3.5 py-2.5 text-[11px] leading-relaxed text-[#8a5b08]">
+            🎬 采用「<strong>官方预告片合法嵌入 + 正版平台跳转看全片</strong>」策略：预告如受防盗链限制会自动降级为海报，
+            看全片请点弹窗底部按钮前往 B站 / 爱奇艺 / 腾讯视频 / 1905电影网。不含任何片源或盗版链接。
+          </div>
+          {movies.length === 0 ? (
+            <EmptyState emblem="🎬" title="电影目录加载中" desc="稍等片刻；不影响其他栏目使用。" />
+          ) : (
+            movies.map((m) => <MovieCard key={m.id} movie={m} onOpen={() => setSelectedMovie(m)} />)
+          )}
+        </section>
+      )}
+
+      {/* ---------- 3b. 信息流主体：快讯 → 大图头条 → 视频混排（电影 Tab 时不渲染） ---------- */}
+      {tab !== 'movie' && (allItems.length === 0 ? (
         <EmptyState emblem="🎬" title="没有匹配的视频"
           desc="换个栏目或关键词试试；也可以点右上角齿轮确认视频库已正确加载。"
           action={<button type="button"
@@ -368,7 +421,41 @@ export function CultureHub() {
             XP 与连续天数沿用 <code className="text-brand-600">lingua_profile</code>。旧流程完全不受影响。
           </p>
         </>
+      ))}
+
+      {/* ---------- 4. [内容扩充] 扩展视频区：55 条合规播放列表卡，分页展示 ---------- */}
+      {tab !== 'movie' && expandedVideos.length > 0 && (
+        <section data-testid="culture-expanded-videos" className="space-y-2.5">
+          <div className="flex items-center justify-between px-1">
+            <p className="text-[13px] font-black text-ink">更多精选 · 官方播放列表</p>
+            <span className="text-[10px] font-semibold text-muted">{expandedVideos.length} 条 · 演示索引</span>
+          </div>
+          <p className="rounded-xl bg-brand-50/60 px-3 py-2 text-[10px] leading-relaxed text-brand-700">
+            以下为原创学习卡，固定到已验证的官方播放列表，无单条视频 ID；点击在新窗口打开官方页面。
+          </p>
+          {extPageItems.map((v) => (
+            <button key={v.id} type="button" onClick={() => openExtendedVideo(v.watchUrl)}
+              className="cf-feed-block cf-video-card flex w-full items-center gap-3 rounded-3xl border border-white/80 bg-white/92 p-3 text-left shadow-card transition hover:border-brand-200">
+              <span className={cn('relative flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br text-white', v.coverFrom, v.coverTo)}>
+                <span aria-hidden="true" className="text-2xl opacity-80">{v.emblem}</span>
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block en-text truncate text-[13px] font-bold text-ink">{v.title}</span>
+                <span className="mt-0.5 block truncate text-[11px] text-muted">{v.titleZh} · {v.durationLabel}</span>
+                <span className="mt-1.5 block text-[10px] font-semibold text-brand-500">官方播放列表 · 在新窗口打开</span>
+              </span>
+              <Icon name="right" size={15} className="shrink-0 text-muted" />
+            </button>
+          ))}
+          <CatalogPager page={extPage} totalPages={extTotalPages} onPage={setExtPage} />
+        </section>
       )}
+
     </div>
+    {/* 电影详情 / 播放弹窗：放在 animate-in 容器之外，避免 transform 破坏 fixed 定位 */}
+    {selectedMovie && (
+      <MoviePlayerModal movie={selectedMovie} onClose={() => setSelectedMovie(null)} />
+    )}
+    </>
   )
 }

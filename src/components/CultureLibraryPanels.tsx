@@ -16,6 +16,10 @@ import type { PlaylistRegistryState } from '../cultureLibraryTypes'
 import type { CultureLibraryState } from '../cultureTypes'
 import { computeLibraryHealth, percent } from '../lib/cultureLibraryHealth'
 import { cooldownRemaining, syncPlaylists } from '../services/playlistSync'
+/** [大数据迁移] 同步条目的正文进 IndexedDB，localStorage 只留索引 */
+import { getBigTextBackend } from '../lib/db'
+import { isHeavyVideo } from '../lib/bigText'
+import { disableSlimming } from '../lib/storage'
 import type { PlaylistSyncReport } from '../cultureLibraryTypes'
 import {
   QUOTA_NOTICE, SOURCE_LABELS, SYNC_POLICY,
@@ -111,6 +115,16 @@ export function PlaylistRegistryPanel() {
       const out = await syncPlaylists({
         registry, library: data.cultureVideos, mode,
       })
+      /**
+       * [大数据迁移] 新增条目的正文先落 IndexedDB；失败则关闭瘦身，
+       * 让正文继续留在 localStorage（旧行为），避免同步内容丢失。
+       */
+      const fresh = out.library.videos.filter((v) => isHeavyVideo(v))
+      if (fresh.length) {
+        const backend = await getBigTextBackend()
+        const written = await backend.putMedias(fresh)
+        if (written < fresh.length) disableSlimming()
+      }
       update((prev) => ({
         ...prev,
         cultureVideos: out.library,

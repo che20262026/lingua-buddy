@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useApp, useDerived } from '../store/useAppStore'
 import { analyzeText } from '../services/textAnalyzer'
 import { SAMPLE_TEXT, SAMPLE_TEXTS } from '../data/mockData'
@@ -8,19 +8,62 @@ import { Card, Chip, EmptyState, Icon, Loader, ProgressRing, SectionTitle } from
 /** [CEFR 等级层] 每日计划的今日推荐读取 active 等级，不读 recommended */
 import { recommendDailyTask } from '../services/dailyPlan'
 import { SyncBanner } from '../components/SyncBanner'
+import { DailyGoalModal } from '../components/DailyGoalModal'
 
 const MIN_CHARS = 30
+
+/** sessionStorage：本次会话不再自动弹出「今日目标」弹窗（不新增 localStorage 键） */
+const GOAL_DISMISS_KEY = 'lingua_home_goal_dismissed'
+
+function goalDismissed(): boolean {
+  try {
+    return window.sessionStorage.getItem(GOAL_DISMISS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function markGoalDismissed(): void {
+  try {
+    window.sessionStorage.setItem(GOAL_DISMISS_KEY, '1')
+  } catch {
+    /* 隐私模式存不了就算了，不影响功能 */
+  }
+}
+
+/**
+ * [更多模块] 四个学习模式 —— 原先是首页中上部四张整宽宣传卡，
+ * 挤在真正的功能区前面，是「界面乱」的主因。现在收成底部一张 2×2 小网格，
+ * 文案与跳转一个没少，只是把视觉重量让给「今日目标」和「对话界面」。
+ */
+const MODULE_TILES = [
+  { id: 'library', title: '经典英文文学研读', chip: '公版书单', icon: '📚', tint: 'bg-mint-100', view: 'library' as const },
+  { id: 'culture', title: '文化视角视频', chip: '官方嵌入', icon: '🎬', tint: 'bg-coral-100', view: 'cultureHub' as const },
+  { id: 'wordLab', title: '词场 · 主动词库学习', chip: '7 个词库', icon: '🃏', tint: 'bg-sun-100', view: 'wordLab' as const },
+  { id: 'chinaTrack', title: '本土应试与真实能力桥接资源库', chip: '四个轨道', icon: '🧭', tint: 'bg-mint-100', view: 'chinaTrack' as const },
+]
 
 export function Home() {
   const { data, update, navigate, notify, draftText, setDraftText } = useApp()
   const { unfinished, dueReviews } = useDerived()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [goalOpen, setGoalOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const chars = draftText.trim().length
   const level = getIeltsLevel(data.settings.ieltsLevel)
   /** [CEFR 等级层] 今日计划跟着用户当前选择走，而不是推荐等级 */
   const todayTask = recommendDailyTask(data.levelPreference)
+  const goalPct = Math.min(1, data.profile.todayXp / Math.max(data.profile.dailyGoal, 1))
+  const levelLine = `${level.emblem} 当前目标 IELTS ${level.band} · ${level.name}（CEFR ${level.cefr}）`
+
+  /* 今日目标弹窗：本次会话首次进入首页时自动弹一次；
+     用户点「隐藏」后本次会话不再自动弹出，入口卡随时可以手动点开。 */
+  useEffect(() => {
+    if (goalDismissed()) return
+    markGoalDismissed()
+    setGoalOpen(true)
+  }, [])
 
   const runAnalysis = (text: string) => {
     setError('')
@@ -78,136 +121,28 @@ export function Home() {
 
   return (
     <div className="space-y-5">
-      {/* [云同步] 未登录告警横幅：真机第一屏就能看见「数据只在本机」，点一下直接登录 */}
+      {/* [云同步] 未登录告警横幅：真机第一屏就能看见「数据只在本机」，点一下直接登录。
+          已登录（已同步）时该组件自动不渲染，首页不再被它占住黄金位。 */}
       <SyncBanner />
 
-      {/* Hero */}
-      <section className="animate-in overflow-hidden rounded-[28px] bg-gradient-to-br from-brand-500 via-brand-600 to-[#5b46c9] p-6 text-white shadow-float sm:p-8">
-        <Chip tone="slate" className="bg-white/20 text-white">✦ 原创角色扮演 · 本地运行</Chip>
-        <h1 className="font-display mt-4 text-[26px] font-black leading-tight sm:text-3xl">
-          把一段英文，<br />变成一场能开口的对话
-        </h1>
-        <p className="mt-3 max-w-md text-sm leading-relaxed text-white/85">
-          贴进任意英文文本，LinguaBuddy 会读出它的主题、词汇与语法，再为你搭好场景和角色。接下来，剩下的交给你说。
-        </p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          {['① 贴文本', '② 生成场景', '③ 开口对话', '④ 收报告与复习'].map((s) => (
-            <span key={s} className="rounded-full bg-white/15 px-3 py-1.5 text-[11px] font-semibold">{s}</span>
-          ))}
-        </div>
-        <button type="button" onClick={() => navigate('settings')}
-          className="mt-4 flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/25">
-          {level.emblem} 当前目标 IELTS {level.band} · {level.name}（CEFR {level.cefr}）
-          <Icon name="right" size={12} />
-        </button>
-      </section>
-
-      {/* 续玩 / 待复习提示 */}
-      {(unfinished || dueReviews.length > 0) && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {unfinished && (
-            <button type="button" onClick={() => navigate('dialogue', { sessionId: unfinished.id, scenarioId: unfinished.scenarioId })}
-              className="card flex items-center gap-3 p-4 text-left transition hover:border-brand-300">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-50 text-brand-600"><Icon name="play" size={18} /></div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-ink">继续上次对话</p>
-                <p className="truncate text-xs text-muted">{unfinished.scenarioTitle} · 已进行 {unfinished.turns} 轮</p>
-              </div>
-              <Icon name="right" size={16} className="text-muted" />
-            </button>
-          )}
-          {dueReviews.length > 0 && (
-            <button type="button" onClick={() => navigate('review')}
-              className="card flex items-center gap-3 p-4 text-left transition hover:border-brand-300">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sun-100 text-[#a56a08]"><Icon name="cards" size={18} /></div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-ink">{dueReviews.length} 张卡片到期</p>
-                <p className="truncate text-xs text-muted">趁记忆还热，去复习页打个卡</p>
-              </div>
-              <Icon name="right" size={16} className="text-muted" />
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* [新增] 文学长廊指路牌：与「文本分析 → 角色对话」并列，不替代 */}
-      <button type="button" onClick={() => navigate('library')}
-        className="card animate-in flex w-full items-center gap-3.5 p-4 text-left transition hover:border-brand-300">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-mint-100 text-xl">📚</div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-sm font-bold text-ink">经典英文文学研读</p>
-            <Chip tone="mint" className="!px-2 !py-0.5 !text-[10px]">NEW · 公版书单</Chip>
-          </div>
-          <p className="mt-0.5 truncate text-xs text-muted">按章节读原文、三视图切换、章末进入苏格拉底式文学研讨</p>
-        </div>
-        <Icon name="right" size={16} className="shrink-0 text-muted" />
+      {/* ① 今日目标：整页第一个模块。完整内容在弹窗里，这里只留显眼入口。 */}
+      <button type="button" onClick={() => setGoalOpen(true)} data-testid="daily-goal-entry"
+        className="card flex w-full items-center gap-4 p-4 text-left transition hover:border-brand-300">
+        <ProgressRing value={goalPct} label={`${data.profile.todayXp}`} sub={`/ ${data.profile.dailyGoal} XP`} size={72} />
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-sm font-black text-ink">今日目标 · 每天一点点就够</span>
+          <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">{levelLine}</span>
+          <span data-testid="daily-plan-task"
+            className="mt-1.5 block rounded-xl bg-brand-50/70 px-2.5 py-1.5 text-[10px] leading-relaxed text-brand-700">
+            今日推荐 · 按当前等级 {todayTask.level}：{todayTask.label}（{todayTask.module}）
+          </span>
+          <span className="mt-1.5 flex items-center gap-1 text-[11px] font-bold text-brand-600">
+            查看完整今日目标<Icon name="right" size={12} />
+          </span>
+        </span>
       </button>
 
-      {/* [新增] 文化长街指路牌：与文本分析、文学研读并列，不替代 */}
-      <button type="button" onClick={() => navigate('cultureHub')}
-        className="card animate-in flex w-full items-center gap-3.5 p-4 text-left transition hover:border-brand-300">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-coral-100 text-xl">🎬</div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-sm font-bold text-ink">文化视角视频</p>
-            <Chip tone="coral" className="!px-2 !py-0.5 !text-[10px]">NEW · 官方嵌入</Chip>
-          </div>
-          <p className="mt-0.5 truncate text-xs text-muted">看真实语速、读文化注释，看完进入独立的观后讨论</p>
-        </div>
-        <Icon name="right" size={16} className="shrink-0 text-muted" />
-      </button>
-
-      {/* [新增] 词场指路牌：第四个学习模式，与文本分析 / 文学 / 文化并列 */}
-      <button type="button" onClick={() => navigate('wordLab')}
-        className="card animate-in flex w-full items-center gap-3.5 p-4 text-left transition hover:border-brand-300">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sun-100 text-xl">🃏</div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-sm font-bold text-ink">词场 · 主动词库学习</p>
-            <Chip tone="sun" className="!px-2 !py-0.5 !text-[10px]">NEW · 7 个词库</Chip>
-          </div>
-          <p className="mt-0.5 truncate text-xs text-muted">猜义 → 验证 → 拼写 → 结算，艾宾浩斯阶梯自动排程</p>
-        </div>
-        <Icon name="right" size={16} className="shrink-0 text-muted" />
-      </button>
-
-      {/* [新增] China Learner Track 指路牌：作为「学习」页下的入口卡，不新增底部导航项 */}
-      <button type="button" onClick={() => navigate('chinaTrack')}
-        className="card animate-in flex w-full items-center gap-3.5 p-4 text-left transition hover:border-brand-300">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-mint-100 text-xl">🧭</div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-sm font-bold text-ink">本土应试与真实能力桥接资源库</p>
-            <Chip tone="mint" className="!px-2 !py-0.5 !text-[10px]">NEW · 四个轨道</Chip>
-          </div>
-          <p className="mt-0.5 truncate text-xs text-muted">
-            中文构思后硬翻 / 读不透原文逻辑 / 从没被要求开口 / 语法正确却不地道
-          </p>
-        </div>
-        <Icon name="right" size={16} className="shrink-0 text-muted" />
-      </button>
-
-      {/* [新增] 大肥鱼自由对话指路牌：没有剧本的闲聊沙盒，同样不新增底部导航项 */}
-      <button type="button" onClick={() => navigate('freeTalk')}
-        data-testid="home-freetalk-entry"
-        className="card animate-in flex w-full items-center gap-3.5 p-4 text-left transition hover:border-brand-300">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
-          <Icon name="fish" size={24} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <p className="text-sm font-bold text-ink">大肥鱼自由对话</p>
-            <Chip tone="brand" className="!px-2 !py-0.5 !text-[10px]">NEW · 6 条鱼</Chip>
-          </div>
-          <p className="mt-0.5 truncate text-xs text-muted">
-            没有剧本，挑一条有脾气的胖鱼，用英 / 美 / 澳口音瞎聊
-          </p>
-        </div>
-        <Icon name="right" size={16} className="shrink-0 text-muted" />
-      </button>
-
-      {/* 输入区 */}
+      {/* ② 对话界面：紧跟在今日目标下面，中间不再插任何干扰元素。 */}
       <Card className="animate-in">
         <SectionTitle title="今天想聊哪一段英文？" subtitle="粘贴、上传，或者直接拿示例文本开一场冒险。" />
         <div className="mb-3 flex flex-wrap gap-2">
@@ -249,27 +184,51 @@ export function Home() {
             <Icon name="sparkles" size={18} />生成学习场景<Icon name="right" size={16} />
           </button>
         )}
+
+        {/* 大肥鱼自由对话：原先是首页一块独立大板块，现在收成对话区里的一个按钮。
+            仍是唯一入口，仍不新增底部导航项。 */}
+        <div className="mt-3 border-t border-brand-50 pt-3">
+          <button type="button" onClick={() => navigate('freeTalk')} data-testid="home-freetalk-entry"
+            className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-2xl bg-brand-50 px-4 py-2.5 text-[13px] font-bold text-brand-600 transition hover:bg-brand-100">
+            <Icon name="fish" size={18} />大肥鱼自由对话
+          </button>
+          <p className="mt-1.5 text-center text-[10px] leading-relaxed text-muted">
+            没有剧本，挑一条有脾气的胖鱼，用英 / 美 / 澳口音瞎聊
+          </p>
+        </div>
+
         <p className="mt-3 text-center text-[11px] leading-relaxed text-muted">
           无需 API Key · 分析与进度保存在本机浏览器 · 随时可在设置页清空
         </p>
       </Card>
 
-      {/* 今日小目标 */}
-      <Card className="flex items-center gap-5">
-        <ProgressRing value={Math.min(1, data.profile.todayXp / Math.max(data.profile.dailyGoal, 1))}
-          label={`${data.profile.todayXp}`} sub={`/ ${data.profile.dailyGoal} XP`} size={86} />
-        <div className="min-w-0">
-          <p className="font-display text-sm font-bold text-ink">今日目标 · 每天一点点就够</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted">完成一轮对话 +8 XP，覆盖目标词另有奖励。连续学习 {data.profile.streak} 天啦。</p>
-          <p data-testid="daily-plan-task" className="mt-1.5 rounded-xl bg-brand-50/70 px-2.5 py-1.5 text-[10px] leading-relaxed text-brand-700">
-            今日推荐 · 按当前等级 {todayTask.level}：{todayTask.label}（{todayTask.module}）
-          </p>
-          <div className="mt-2 flex gap-2">
-            <Chip tone="sun"><Icon name="flame" size={12} />{data.profile.streak} 天连续</Chip>
-            <Chip tone="brand"><Icon name="star" size={12} />{data.profile.xp} 总 XP</Chip>
-          </div>
+      {/* 续玩 / 待复习提示：只在真的有事时出现 */}
+      {(unfinished || dueReviews.length > 0) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {unfinished && (
+            <button type="button" onClick={() => navigate('dialogue', { sessionId: unfinished.id, scenarioId: unfinished.scenarioId })}
+              className="card flex items-center gap-3 p-4 text-left transition hover:border-brand-300">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-50 text-brand-600"><Icon name="play" size={18} /></div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-ink">继续上次对话</p>
+                <p className="truncate text-xs text-muted">{unfinished.scenarioTitle} · 已进行 {unfinished.turns} 轮</p>
+              </div>
+              <Icon name="right" size={16} className="text-muted" />
+            </button>
+          )}
+          {dueReviews.length > 0 && (
+            <button type="button" onClick={() => navigate('review')}
+              className="card flex items-center gap-3 p-4 text-left transition hover:border-brand-300">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sun-100 text-[#a56a08]"><Icon name="cards" size={18} /></div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-ink">{dueReviews.length} 张卡片到期</p>
+                <p className="truncate text-xs text-muted">趁记忆还热，去复习页打个卡</p>
+              </div>
+              <Icon name="right" size={16} className="text-muted" />
+            </button>
+          )}
         </div>
-      </Card>
+      )}
 
       {/* 历史文本 */}
       <section>
@@ -293,10 +252,39 @@ export function Home() {
         )}
       </section>
 
+      {/* 更多模块：四个学习模式的入口，收成 2×2 小网格沉到页面底部 */}
+      <section>
+        <SectionTitle title="更多模块" subtitle="四个学习模式并列，不新增底部导航项；资源库只从这里进。" />
+        <div className="grid grid-cols-2 gap-2.5">
+          {MODULE_TILES.map((m) => (
+            <button key={m.id} type="button" onClick={() => navigate(m.view)}
+              className="card flex min-w-0 flex-col items-start gap-1.5 p-3 text-left transition hover:border-brand-300">
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${m.tint} text-base`}>{m.icon}</span>
+              <span className="min-w-0">
+                <span className="block text-[12px] font-bold leading-snug text-ink">{m.title}</span>
+                <span className="mt-1 inline-block rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-600">{m.chip}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <button type="button" onClick={() => speak('Every sentence you try is a step forward.', data.settings)}
-        className="mx-auto flex items-center gap-2 text-xs font-semibold text-brand-600 hover:underline">
+        className="mx-auto flex min-h-[44px] items-center gap-2 text-xs font-semibold text-brand-600 hover:underline">
         <Icon name="headphones" size={15} />试听一句今日鼓励（浏览器朗读）
       </button>
+
+      {/* 今日目标弹窗：放在页面末尾，DOM 顺序在正文之后 */}
+      <DailyGoalModal
+        open={goalOpen}
+        onClose={() => setGoalOpen(false)}
+        onHide={() => { markGoalDismissed(); setGoalOpen(false) }}
+        todayXp={data.profile.todayXp}
+        dailyGoal={data.profile.dailyGoal}
+        totalXp={data.profile.xp}
+        streak={data.profile.streak}
+        task={todayTask}
+        levelLine={levelLine} />
     </div>
   )
 }

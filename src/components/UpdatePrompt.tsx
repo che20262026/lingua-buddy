@@ -70,7 +70,7 @@ export function UpdatePrompt() {
   if (needRefresh) {
     return (
       <div data-testid="pwa-update-prompt" role="status" aria-live="polite"
-        className="glass fixed bottom-[calc(88px_+_env(safe-area-inset-bottom))] left-1/2 z-[70] flex w-[min(92vw,420px)] -translate-x-1/2 animate-in items-center gap-2 rounded-2xl border border-brand-100 px-3 py-2 shadow-float">
+        className="glass fixed bottom-[calc(88px_+_env(safe-area-inset-bottom))] left-1/2 z-[70] flex w-[min(92vw,420px)] -translate-x-1/2 animate-in-centered items-center gap-2 rounded-2xl border border-brand-100 px-3 py-2 shadow-float">
         <button type="button" data-testid="update-prompt-refresh" disabled={updating}
           onClick={() => {
             setUpdating(true)
@@ -94,7 +94,7 @@ export function UpdatePrompt() {
   if (offlineReady) {
     return (
       <div data-testid="pwa-offline-ready" aria-live="polite"
-        className="glass fixed bottom-[calc(88px_+_env(safe-area-inset-bottom))] left-1/2 z-[70] w-[min(92vw,420px)] -translate-x-1/2 animate-in rounded-2xl border border-mint-100 px-4 py-2.5 text-center text-xs font-bold text-mint-600 shadow-float">
+        className="glass fixed bottom-[calc(88px_+_env(safe-area-inset-bottom))] left-1/2 z-[70] w-[min(92vw,420px)] -translate-x-1/2 animate-in-centered rounded-2xl border border-mint-100 px-4 py-2.5 text-center text-xs font-bold text-mint-600 shadow-float">
         ✨ 已缓存离线学习界面，断网也能打开
       </div>
     )

@@ -132,6 +132,13 @@ export interface CultureVideo {
   seedQuestions: string[]
   /** 平台是否自带官方字幕（UI 只用播放器自带 CC，不重新渲染字幕全文） */
   nativeCaptions: boolean
+  /**
+   * [大数据迁移] 索引形态的计数。
+   * 内容数组迁往 IndexedDB 后，localStorage 只留轻量索引，
+   * 列表卡仍要显示「N 段 / M 条短引用」，所以计数在生成索引时保留。
+   */
+  segmentCount?: number
+  expressionCount?: number
   /** 用户自有、明确标注可嵌入的条目（预留，不开放任意上传） */
   custom?: boolean
 

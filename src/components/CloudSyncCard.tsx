@@ -57,9 +57,9 @@ export function CloudSyncCard() {
         <form data-testid="cloud-auth-form" onSubmit={submit} className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setMode('signin')}
-              className={`rounded-xl px-3 py-2 text-xs font-bold transition ${mode === 'signin' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-muted'}`}>登录</button>
+              className={`seg-btn rounded-xl px-3 py-2 text-xs font-bold transition ${mode === 'signin' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-muted'}`}>登录</button>
             <button type="button" onClick={() => setMode('signup')}
-              className={`rounded-xl px-3 py-2 text-xs font-bold transition ${mode === 'signup' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-muted'}`}>注册</button>
+              className={`seg-btn rounded-xl px-3 py-2 text-xs font-bold transition ${mode === 'signup' ? 'bg-brand-500 text-white' : 'bg-slate-100 text-muted'}`}>注册</button>
           </div>
           <label className="block text-xs font-bold text-ink">邮箱
             <input className="field mt-1.5" type="email" autoComplete="email" required

@@ -99,16 +99,25 @@ export function getChapter(
 export function listChapters(library: LibraryState, bookId?: string): ChapterSummary[] {
   const book = getBook(library, bookId)
   if (!book) return []
-  return book.chapters.map((c) => ({
-    id: c.id,
-    title: c.title,
-    order: c.order,
-    excerptRange: c.excerptRange,
-    wordCount: countWords(c.paragraphs.join(' ')),
-    cefr: estimateCefr(c.paragraphs.join(' ')),
-    paragraphCount: c.paragraphs.length,
-    hasBrief: Boolean(library.briefs?.[c.id]),
-  }))
+  return book.chapters.map((c) => {
+    /**
+     * [大数据迁移] 正文搬去 IndexedDB 后，本地只留轻量索引。
+     * 此时「本章字数 / CEFR 估计 / 段落数」由索引自带的派生值给出，
+     * 显示结果与全量时逐字一致；只有既无正文又无派生值时才退化为 0。
+     */
+    const hasBody = Array.isArray(c.paragraphs) && c.paragraphs.length > 0
+    const text = hasBody ? c.paragraphs.join(' ') : ''
+    return {
+      id: c.id,
+      title: c.title,
+      order: c.order,
+      excerptRange: c.excerptRange,
+      wordCount: hasBody ? countWords(text) : (c.wordCount ?? 0),
+      cefr: (hasBody ? estimateCefr(text) : (c.cefr ?? 'A2')) as CefrLevel,
+      paragraphCount: hasBody ? c.paragraphs.length : (c.paragraphCount ?? 0),
+      hasBrief: Boolean(library.briefs?.[c.id]),
+    }
+  })
 }
 
 export function nextChapter(book: LiteraryBook, chapterId: string): LiteraryChapter | undefined {

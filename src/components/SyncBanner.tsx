@@ -12,7 +12,9 @@ import { SyncLoginDialog } from './SyncLoginDialog'
  *
  * 三态：
  *   - 未登录      → 醒目告警条，点一下直接弹登录/注册弹窗
- *   - 已登录      → 收成一枚安静的「已同步」状态条，点一下跳设置页账号区块
+ *   - 已登录      → 收成一枚安静的「已同步」状态条；**首页默认不再显示**
+ *                    （首页黄金位让给「今日目标」与对话区），需要时用
+ *                    showWhenSynced 显式打开
  *   - 未配置 Supabase → 如实说明"本构建未接入云端"，不假装能登录
  *
  * 移动端要点：
@@ -20,14 +22,14 @@ import { SyncLoginDialog } from './SyncLoginDialog'
  *   - 文案短、字号 ≥11px，不用长句吓退用户；
  *   - 状态用 aria-live 播报，读屏用户也能感知。
  */
-export function SyncBanner() {
+export function SyncBanner({ showWhenSynced = false }: { showWhenSynced?: boolean } = {}) {
   const sync = useSyncData()
   const { navigate } = useApp()
   const [dialogOpen, setDialogOpen] = useState(false)
 
-  /* 已登录：不再占用黄金位，收成一枚状态条 */
+  /* 已登录：首页不再占用黄金位，收成一枚状态条（默认隐藏） */
   if (sync.user) {
-    return (
+    const syncedBanner = (
       <button type="button"
         data-testid="sync-banner-synced"
         onClick={() => navigate('settings')}
@@ -44,6 +46,7 @@ export function SyncBanner() {
         <Icon name="right" size={14} className="shrink-0 text-muted" />
       </button>
     )
+    return showWhenSynced ? syncedBanner : null
   }
 
   /* 未配置云端：说清楚原因，别让用户以为是自己操作错了 */

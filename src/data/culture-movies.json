@@ -1,0 +1,152 @@
+[
+  {
+    "id": "shawshenk",
+    "title": "The Shawshank Redemption",
+    "titleCn": "肖申克的救赎",
+    "year": 1994,
+    "doubanRating": 9.7,
+    "intro": {
+      "zh": "银行家蒙冤入狱，用近二十年时间与希望凿穿高墙；关于耐心与自由的经典。",
+      "en": "A banker, wrongly convicted, spends nearly twenty years turning patience and hope into freedom."
+    },
+    "posterUrl": "/posters/shawshenk.svg",
+    "embedUrl": "",
+    "watchUrl": "https://search.bilibili.com/all?keyword=%E8%82%96%E7%94%B3%E5%85%8B%E7%9A%84%E6%95%91%E8%B5%8E",
+    "watchPlatform": "B站"
+  },
+  {
+    "id": "forrestgump",
+    "title": "Forrest Gump",
+    "titleCn": "阿甘正传",
+    "year": 1994,
+    "doubanRating": 9.5,
+    "intro": {
+      "zh": "单纯的人在历史洪流里一路奔跑，意外见证半个世纪的美国；温情而轻盈。",
+      "en": "A simple man runs through half a century of American history, seeing more than he ever sought."
+    },
+    "posterUrl": "/posters/forrestgump.svg",
+    "embedUrl": "",
+    "watchUrl": "https://so.iqiyi.com/so/q_%E9%98%BF%E7%94%98%E6%AD%A3%E4%BC%A0",
+    "watchPlatform": "爱奇艺"
+  },
+  {
+    "id": "titanic",
+    "title": "Titanic",
+    "titleCn": "泰坦尼克号",
+    "year": 1997,
+    "doubanRating": 9.5,
+    "intro": {
+      "zh": "巨轮航首的短暂相遇，在灾难中凝成一句承诺；跨越阶层的爱情史诗。",
+      "en": "A brief meeting at the bow of a great ship becomes a lifelong promise amid catastrophe."
+    },
+    "posterUrl": "/posters/titanic.svg",
+    "embedUrl": "",
+    "watchUrl": "https://v.qq.com/x/search/?q=%E6%B3%B0%E5%9D%A6%E5%B0%BC%E5%85%8B%E5%8F%B7",
+    "watchPlatform": "腾讯视频"
+  },
+  {
+    "id": "inception",
+    "title": "Inception",
+    "titleCn": "盗梦空间",
+    "year": 2010,
+    "doubanRating": 9.4,
+    "intro": {
+      "zh": "潜入他人梦境的层层结构，现实与记忆的边界逐渐溶解；一场精密的视觉迷宫。",
+      "en": "A thief who steals secrets from dreams takes one last job, and the layers of reality begin to blur."
+    },
+    "posterUrl": "/posters/inception.svg",
+    "embedUrl": "",
+    "watchUrl": "https://search.bilibili.com/all?keyword=%E7%9B%97%E6%A2%A6%E7%A9%BA%E9%97%B4",
+    "watchPlatform": "B站"
+  },
+  {
+    "id": "interstellar",
+    "title": "Interstellar",
+    "titleCn": "星际穿越",
+    "year": 2014,
+    "doubanRating": 9.4,
+    "intro": {
+      "zh": "穿越虫洞为人类寻找新家园，亲情在时空扭曲中被拉长；科学与情感的双重远征。",
+      "en": "A father travels through a wormhole to find humanity a new home, while time stretches his bond with his daughter."
+    },
+    "posterUrl": "/posters/interstellar.svg",
+    "embedUrl": "",
+    "watchUrl": "https://so.iqiyi.com/so/q_%E6%98%9F%E9%99%85%E7%A9%BF%E8%B6%8A",
+    "watchPlatform": "爱奇艺"
+  },
+  {
+    "id": "truman",
+    "title": "The Truman Show",
+    "titleCn": "楚门的世界",
+    "year": 1998,
+    "doubanRating": 9.4,
+    "intro": {
+      "zh": "一个人的整个生活竟是直播节目；当天空出现裂缝，他决定走出去；关于真实与自由的寓言。",
+      "en": "A man discovers his whole life is a television show, and walks toward the edge of his painted sky."
+    },
+    "posterUrl": "/posters/truman.svg",
+    "embedUrl": "",
+    "watchUrl": "https://www.1905.com/search.php?keyword=%E6%A5%9A%E9%97%A8%E7%9A%84%E4%B8%96%E7%95%8C",
+    "watchPlatform": "1905电影网"
+  },
+  {
+    "id": "godfather",
+    "title": "The Godfather",
+    "titleCn": "教父",
+    "year": 1972,
+    "doubanRating": 9.3,
+    "intro": {
+      "zh": "家族权力与亲情的代价，在两代接班中缓缓展开；黑帮史诗的巅峰。",
+      "en": "A crime family passes power from father to son, at the cost of loyalty, love, and innocence."
+    },
+    "posterUrl": "/posters/godfather.svg",
+    "embedUrl": "",
+    "watchUrl": "https://v.qq.com/x/search/?q=%E6%95%99%E7%88%B6",
+    "watchPlatform": "腾讯视频"
+  },
+  {
+    "id": "pursuit",
+    "title": "The Pursuit of Happyness",
+    "titleCn": "当幸福来敲门",
+    "year": 2006,
+    "doubanRating": 9.2,
+    "intro": {
+      "zh": "落魄推销员带着儿子在困境中坚持，最终叩开幸福之门；关于韧性的真实故事。",
+      "en": "A struggling salesman and his son endure homelessness until persistence opens the door to a better life."
+    },
+    "posterUrl": "/posters/pursuit.svg",
+    "embedUrl": "",
+    "watchUrl": "https://search.bilibili.com/all?keyword=%E5%BD%93%E5%B9%B8%E7%A6%8F%E6%9D%A5%E6%95%B2%E9%97%A8",
+    "watchPlatform": "B站"
+  },
+  {
+    "id": "zootopia",
+    "title": "Zootopia",
+    "titleCn": "疯狂动物城",
+    "year": 2016,
+    "doubanRating": 9.2,
+    "intro": {
+      "zh": "兔子警官与狐狸搭档协作破案，在偏见中重新理解彼此；明亮幽默的成人童话。",
+      "en": "A rabbit officer and a fox con artist team up to solve a case, learning to see past their stereotypes."
+    },
+    "posterUrl": "/posters/zootopia.svg",
+    "embedUrl": "",
+    "watchUrl": "https://so.iqiyi.com/so/q_%E7%96%AF%E7%8B%82%E5%8A%A8%E7%89%A9%E5%9F%8E",
+    "watchPlatform": "爱奇艺"
+  },
+  {
+    "id": "coco",
+    "title": "Coco",
+    "titleCn": "寻梦环游记",
+    "year": 2017,
+    "doubanRating": 9.1,
+    "intro": {
+      "zh": "热爱音乐的男孩误入亡灵世界，在寻祖途中读懂家族与记忆；绚烂而催泪。",
+      "en": "A boy who loves music wanders into the Land of the Dead and discovers the story behind his family."
+    },
+    "posterUrl": "/posters/coco.svg",
+    "embedUrl": "",
+    "watchUrl": "https://v.qq.com/x/search/?q=%E5%AF%BB%E6%A2%A6%E7%8E%AF%E6%B8%B8%E8%AE%B0",
+    "watchPlatform": "腾讯视频"
+  }
+]

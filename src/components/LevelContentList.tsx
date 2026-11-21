@@ -114,7 +114,7 @@ export function LevelContentList({ module }: { module: LevelModule }) {
         <div className="grid gap-2.5 sm:grid-cols-2">
           {items.map((item) => (
             <div key={item.id} data-testid={`level-item-${item.id}`}
-              className="card animate-in flex flex-col p-4">
+              className="card animate-in flex min-w-0 flex-col p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="en-text truncate text-sm font-bold text-ink">{item.title}</p>
@@ -138,11 +138,11 @@ export function LevelContentList({ module }: { module: LevelModule }) {
                 )}
               </div>
 
-              <p className="mt-2 rounded-xl bg-slate-50 px-2.5 py-2 text-[10px] leading-relaxed text-muted">
+              <p className="mt-2 break-words rounded-xl bg-slate-50 px-2.5 py-2 text-[10px] leading-relaxed text-muted">
                 难度依据：{basisSummary(item)}
               </p>
-              <p className="mt-1.5 text-[10px] leading-relaxed text-muted">为什么是这个等级：{item.levelNotes}</p>
-              <p className="mt-1.5 text-[10px] leading-relaxed text-muted">
+              <p className="mt-1.5 break-words text-[10px] leading-relaxed text-muted">为什么是这个等级：{item.levelNotes}</p>
+              <p className="mt-1.5 break-words text-[10px] leading-relaxed text-muted">
                 来源：{item.sourceLabel} · 许可：{item.licenseNote}
               </p>
 

@@ -46,11 +46,11 @@ export function AiModeBadge() {
         </div>
         <div className="flex gap-1.5">
           <button type="button" data-testid="ai-mode-recheck" onClick={() => void check(true)}
-            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-muted">
+            className="seg-btn rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-muted">
             重新检测
           </button>
           <button type="button" data-testid="ai-mode-force-mock" onClick={toggleForce}
-            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-muted">
+            className="seg-btn rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-muted">
             {forced ? '恢复自动' : '强制 Mock'}
           </button>
         </div>

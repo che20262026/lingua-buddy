@@ -16,6 +16,7 @@ import {
   DEFAULT_READING_PROGRESS, DEFAULT_SEMINARS, LIBRARY_SEED_VERSION,
   LITERARY_SETTING_DEFAULTS,
 } from '../data/librarySeed'
+import { toBookStub } from './bigText'
 import type { LibraryState } from '../literaryTypes'
 
 export interface MigrationReport {
@@ -48,7 +49,15 @@ export function migrateLiteraryData(): MigrationReport {
   }
 
   const defaults: Record<string, unknown> = {
-    [KEYS.library]: DEFAULT_LIBRARY_STATE,
+    /**
+     * [大数据迁移] 只播种**索引**：书名 / 作者 / 封面 / 章节数 / 字数 / CEFR。
+     * 章节正文由 JS bundle 里的全量种子兜底（loadData 会合并），
+     * 用户自己添加的长文本则进 IndexedDB —— localStorage 不再背 40KB 正文。
+     */
+    [KEYS.library]: {
+      ...DEFAULT_LIBRARY_STATE,
+      books: DEFAULT_LIBRARY_STATE.books.map(toBookStub),
+    },
     [KEYS.readingProgress]: DEFAULT_READING_PROGRESS,
     [KEYS.seminars]: DEFAULT_SEMINARS,
     [KEYS.literaryNotes]: DEFAULT_LITERARY_NOTES,
@@ -74,7 +83,8 @@ export function migrateLiteraryData(): MigrationReport {
             : []
           const next: LibraryState = {
             seedVersion: LIBRARY_SEED_VERSION,
-            books: [...BUILTIN_BOOKS, ...custom],
+            /** 内置书只留索引（正文由 bundle 兜底）；用户自定义书保留原样，稍后由大文本迁移搬进 IndexedDB */
+            books: [...BUILTIN_BOOKS.map(toBookStub), ...custom],
             briefs: parsed.briefs && typeof parsed.briefs === 'object' ? parsed.briefs : {},
           }
           ls.setItem(KEYS.library, JSON.stringify(next))

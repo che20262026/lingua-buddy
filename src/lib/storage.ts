@@ -1,4 +1,15 @@
 import type { PersistedData } from '../types'
+/** [新增] 大文本持久层：IndexedDB 主存，localStorage 只留索引 */
+import {
+  clearBigText, createMemoryBackend, getBigTextBackend, isPersistentBackend, setBigTextBackend,
+} from './db'
+/** [新增] 索引化纯函数：把正文拆成「索引（localStorage）+ 正文（IndexedDB）」 */
+import {
+  isHeavyBook, isHeavyVideo, mergeCultureState, mergeLibraryState,
+  planBigTextMigration, slimCultureForStorage, slimLibraryForStorage, toBookStub, toVideoStub,
+} from './bigText'
+import type { LibraryState, LiteraryBook } from '../literaryTypes'
+import type { CultureLibraryState, CultureVideo } from '../cultureTypes'
 /** [新增] 四个文学键的默认值来自独立种子文件，避免与 literaryStorage 形成循环依赖 */
 import {
   DEFAULT_LIBRARY_STATE, DEFAULT_READING_PROGRESS, DEFAULT_SEMINARS,
@@ -192,13 +203,30 @@ function safeParse<T>(raw: string | null, fallback: T): T {
   }
 }
 
-/** 读取所有数据；单键损坏时只回退该键，不影响其余内容 */
+/**
+ * 读取所有数据；单键损坏时只回退该键，不影响其余内容。
+ *
+ * [大数据迁移] 书架与文化两键走特殊合并：
+ *   localStorage 里只有「索引」（书名/封面/字数/CEFR…），正文在 IndexedDB；
+ *   而 JS bundle 里本来就带着一份**当前版本的全量种子**。
+ *   所以内置条目一律以 bundle 全量为准，localStorage 的索引只负责
+ *   「这条存在、且用户是否改过它」；自定义 / 同步来的条目保留索引，
+ *   正文随后由 IndexedDB 水合补齐。
+ */
 export function loadData(): PersistedData {
   if (typeof window === 'undefined' || !window.localStorage) return structuredClone(DEFAULT_DATA)
   const result = structuredClone(DEFAULT_DATA)
   for (const key of ORDER) {
     const value = safeParse<unknown>(window.localStorage.getItem(KEYS[key]), null)
     if (value == null) continue
+    if (key === 'library') {
+      result.library = mergeLibraryState(result.library, value as Partial<LibraryState>)
+      continue
+    }
+    if (key === 'cultureVideos') {
+      result.cultureVideos = mergeCultureState(result.cultureVideos, value as Partial<CultureLibraryState>)
+      continue
+    }
     if (Array.isArray(result[key])) {
       if (Array.isArray(value)) (result[key] as unknown[]) = value
     } else if (typeof value === 'object') {
@@ -213,17 +241,147 @@ export function loadData(): PersistedData {
   return result
 }
 
+/* ---------------------------------------------------------------- *
+ * 大文本瘦身（写 localStorage 之前）
+ * ---------------------------------------------------------------- */
+
+/**
+ * 书籍索引的派生指标很贵（要跑正则统计字数与 CEFR），
+ * 而同一本书对象在内存里是稳定引用，所以缓存一份索引形态复用。
+ */
+const bookStubCache = new WeakMap<object, LiteraryBook>()
+const videoStubCache = new WeakMap<object, CultureVideo>()
+
+function slimBook(book: LiteraryBook): LiteraryBook {
+  if (!isHeavyBook(book)) return book
+  const hit = bookStubCache.get(book)
+  if (hit) return hit
+  const stub = toBookStub(book)
+  bookStubCache.set(book, stub)
+  return stub
+}
+
+function slimVideo(video: CultureVideo): CultureVideo {
+  if (!isHeavyVideo(video)) return video
+  const hit = videoStubCache.get(video)
+  if (hit) return hit
+  const stub = toVideoStub(video)
+  videoStubCache.set(video, stub)
+  return stub
+}
+
+/**
+ * 是否启用瘦身。
+ * 默认跟随后端：IndexedDB 可用才瘦身；一旦某次写入失败（配额/隐私模式），
+ * 可调用 disableSlimming() 退回旧行为，宁可占地方也绝不丢正文。
+ */
+let slimOverride: boolean | null = null
+
+export function disableSlimming(): void {
+  slimOverride = false
+}
+
+export function isSlimmingEnabled(): boolean {
+  return slimOverride !== null ? slimOverride : isPersistentBackend()
+}
+
+/** 写盘前的形态转换：正文留在 IndexedDB，localStorage 只留索引 */
+export function slimForStorage(data: PersistedData): PersistedData {
+  if (!isSlimmingEnabled()) return data
+  return {
+    ...data,
+    library: slimLibraryForStorage({
+      ...data.library,
+      books: (data.library?.books || []).map(slimBook),
+    }),
+    cultureVideos: slimCultureForStorage({
+      ...data.cultureVideos,
+      videos: (data.cultureVideos?.videos || []).map(slimVideo),
+    }),
+  }
+}
+
 /** 只写发生变化的键，避免无关写入 */
 export function saveData(data: PersistedData, prev?: PersistedData): void {
   if (typeof window === 'undefined' || !window.localStorage) return
   try {
+    const outgoing = slimForStorage(data)
+    const previous = prev ? slimForStorage(prev) : undefined
     for (const key of ORDER) {
-      if (prev && JSON.stringify(prev[key]) === JSON.stringify(data[key])) continue
-      window.localStorage.setItem(KEYS[key], JSON.stringify(data[key]))
+      if (previous && JSON.stringify(previous[key]) === JSON.stringify(outgoing[key])) continue
+      window.localStorage.setItem(KEYS[key], JSON.stringify(outgoing[key]))
     }
   } catch (err) {
     console.warn('[LinguaBuddy] localStorage 写入失败：', err)
   }
+}
+
+export interface BigTextMigrationReport {
+  /** 是否因环境限制跳过（无 IndexedDB / 存储不可用） */
+  skipped: boolean
+  /** 搬进 IndexedDB 的书籍条目数 */
+  booksMoved: number
+  /** 搬进 IndexedDB 的视频条目数 */
+  videosMoved: number
+  /** lingua_library 是否已替换为索引形态 */
+  librarySlimmed: boolean
+  /** lingua_culture_videos 是否已替换为索引形态 */
+  cultureSlimmed: boolean
+}
+
+const NOOP_BIG_TEXT_REPORT: BigTextMigrationReport = {
+  skipped: true, booksMoved: 0, videosMoved: 0, librarySlimmed: false, cultureSlimmed: false,
+}
+
+/**
+ * [大数据迁移] 把旧 localStorage 里的正文搬进 IndexedDB。
+ *
+ * 幂等：输入已是索引形态时直接空跑（changed=false）。
+ * 安全：**先写库成功、后删本地正文**——任何一步失败都保留本地原文，绝不丢数据。
+ * 纯前端：没有 IndexedDB（老浏览器 / 隐私模式）时整体跳过，
+ *         应用保持升级前的行为，一个字节都不改。
+ */
+export async function migrateBigTextStorage(): Promise<BigTextMigrationReport> {
+  if (typeof window === 'undefined' || !window.localStorage) return { ...NOOP_BIG_TEXT_REPORT }
+  const backend = await getBigTextBackend()
+  if (!backend.persistent) return { ...NOOP_BIG_TEXT_REPORT }
+  const report: BigTextMigrationReport = {
+    skipped: false, booksMoved: 0, videosMoved: 0, librarySlimmed: false, cultureSlimmed: false,
+  }
+  try {
+    const ls = window.localStorage
+    const plan = planBigTextMigration(ls.getItem(KEYS.library), ls.getItem(KEYS.cultureVideos))
+    if (!plan.changed) return report
+    if (plan.booksToStore.length) {
+      const moved = await backend.putBooks(plan.booksToStore)
+      report.booksMoved = moved
+      if (moved >= plan.booksToStore.length && plan.libraryRaw != null) {
+        ls.setItem(KEYS.library, plan.libraryRaw)
+        report.librarySlimmed = true
+      }
+    }
+    if (plan.videosToStore.length) {
+      const moved = await backend.putMedias(plan.videosToStore)
+      report.videosMoved = moved
+      if (moved >= plan.videosToStore.length && plan.cultureRaw != null) {
+        ls.setItem(KEYS.cultureVideos, plan.cultureRaw)
+        report.cultureSlimmed = true
+      }
+    }
+    return report
+  } catch (err) {
+    console.warn('[LinguaBuddy] 大文本迁移被跳过（不影响原有数据）：', err)
+    return { ...NOOP_BIG_TEXT_REPORT }
+  }
+}
+
+/**
+ * 清空全部数据：31 个 localStorage 键 + IndexedDB 里的正文。
+ * 清空是异步的（IndexedDB 事务），调用方 await 即可。
+ */
+export async function clearAllDataAsync(): Promise<void> {
+  clearAllData()
+  await clearBigText()
 }
 
 export function clearAllData(): void {
@@ -234,3 +392,6 @@ export function clearAllData(): void {
     console.warn('[LinguaBuddy] 清空数据失败：', err)
   }
 }
+
+/** 供测试与诊断：注入大文本后端（传 null 恢复自动探测） */
+export { setBigTextBackend, createMemoryBackend, getBigTextBackend, isPersistentBackend }

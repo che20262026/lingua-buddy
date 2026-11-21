@@ -19,6 +19,13 @@ import { todayKey } from '../lib/storage'
 type Tab = 'queue' | 'mistakes' | 'words' | 'wordLab'
 const DAY = 24 * 60 * 60 * 1000
 
+/**
+ * [复习页降噪] 发音练习 / 语音评测引导卡在复习页关闭。
+ * 只隐藏这一块引导 UI —— 语音服务、评测数据、今日报告与
+ * 「发音待留意」列表全部保留，用户仍可从设置页 / 成长页进入评测。
+ */
+const SHOW_PRONUNCIATION_REVIEW = false
+
 function dueLabel(item: ReviewItem): string {
   const days = Math.ceil((item.dueAt - Date.now()) / DAY)
   if (days <= 0) return '今天到期'
@@ -135,6 +142,41 @@ export function Review() {
     bumpBatch()
   }
 
+  /** 队列卡片只写一份：compact 形态用于置顶焦点区，不渲染作答按钮，避免抢走 tab 内的作答入口 */
+  const renderQueueCard = (item: ReviewItem, compact = false) => {
+    const due = item.dueAt <= Date.now()
+    return (
+      <Card key={item.id} className={due ? '!border-brand-200' : ''}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Chip tone={item.kind === 'mistake' ? 'coral' : item.kind === 'phrase' ? 'mint' : 'brand'}>
+                {item.kind === 'mistake' ? '错题' : item.kind === 'phrase' ? '短语' : '单词'}
+              </Chip>
+              <Chip tone={due ? 'sun' : 'slate'}>{dueLabel(item)}</Chip>
+              <span className="text-[10px] text-muted">第 {item.level + 1} 阶</span>
+            </div>
+            <p className="en-text mt-2 break-words text-base font-bold text-ink">{item.content}</p>
+            <p className="mt-1 text-xs text-brand-600">{item.meaning}</p>
+            <p className="en-text mt-1.5 text-xs italic leading-relaxed text-muted">{item.example}</p>
+            {item.lastReviewedAt && <p className="mt-1.5 text-[10px] text-muted">上次复习：{formatDate(item.lastReviewedAt)}</p>}
+          </div>
+          <button type="button" onClick={() => speak(item.content, data.settings)} aria-label="朗读卡片"
+            className="flex h-11 w-11 shrink-0 items-center justify-center text-brand-500 hover:text-brand-700">
+            <Icon name="speaker" size={16} /></button>
+        </div>
+        {!compact && (
+          <div className="mt-3 flex gap-2 border-t border-brand-50 pt-3">
+            <button type="button" onClick={() => answer(item, false)} className="btn-ghost flex-1 !py-2 !text-xs">
+              <Icon name="refresh" size={14} />再练一次</button>
+            <button type="button" onClick={() => answer(item, true)} className="btn-primary flex-1 !py-2 !text-xs">
+              <Icon name="check" size={14} />记住了</button>
+          </div>
+        )}
+      </Card>
+    )
+  }
+
   const tabs: Array<{ id: Tab; label: string; count: number }> = [
     { id: 'queue', label: '复习队列', count: queue.length },
     { id: 'mistakes', label: '错题本', count: data.mistakes.length },
@@ -144,6 +186,24 @@ export function Review() {
 
   return (
     <div className="animate-in space-y-5">
+      {/* ① 间隔重复队列：置顶焦点区。只露前两张，长列表收进「全部复习队列」 */}
+      <section data-testid="review-queue-focus">
+        <SectionTitle title="间隔重复队列" subtitle="答对就拉长间隔，忘了就今天再见一次。"
+          right={<Chip tone="brand">待复习 {queue.length} 张</Chip>} />
+        {queue.length === 0 ? (
+          <EmptyState emblem="🗓️" title="队列还是空的" desc="完成一场对话后，新词、短语和易错表达会自动排进来。"
+            action={<button type="button" onClick={() => navigate('home')} className="btn-primary">去开始对话</button>} />
+        ) : (
+          <>
+            <div className="space-y-2.5">{queue.slice(0, 2).map((item) => renderQueueCard(item, true))}</div>
+            <button type="button" onClick={() => setTab('queue')}
+              className="btn-primary mt-3 min-h-[48px] w-full !text-sm">
+              <Icon name="cards" size={16} />开始复习{queue.length > 2 ? ` · 还有 ${queue.length - 2} 张` : ''}
+            </button>
+          </>
+        )}
+      </section>
+
       {/* 学习状态总览 */}
       <section className="rounded-[28px] border border-white/80 bg-gradient-to-br from-white via-brand-50/60 to-sun-100/50 p-5 shadow-card">
         <div className="flex items-center gap-5">
@@ -184,8 +244,8 @@ export function Review() {
         </button>
       )}
 
-      {/* 发音练习卡：把语音评测里的建议变成今天能做的动作 */}
-      {voiceSummary && (
+      {/* 发音练习卡：Feature Flag 关闭入口，语音服务 / 评测数据 / 今日报告全部保留 */}
+      {SHOW_PRONUNCIATION_REVIEW && voiceSummary && (
         <Card>
           <SectionTitle title="发音练习" subtitle="从你最近的录音里挑出最值得练的一点。" right={<Chip tone="brand">{voiceSummary.count} 段评测</Chip>} />
           <div className="rounded-2xl bg-gradient-to-br from-brand-50 to-mint-100/50 p-3">
@@ -211,56 +271,38 @@ export function Review() {
         </Card>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-2xl bg-white/80 p-1 shadow-card">
-        {tabs.map((t) => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)}
-            className={`flex-1 rounded-xl px-2 py-2.5 text-xs font-bold transition ${tab === t.id ? 'bg-brand-500 text-white shadow-soft' : 'text-muted hover:bg-brand-50'}`}>
-            {t.label}<span className="ml-1 opacity-70">{t.count}</span>
-          </button>
-        ))}
+      {/* 分板块入口：2×2 紧凑网格，文案与切换逻辑不变 */}
+      <div className="grid grid-cols-2 gap-2">
+        {tabs.map((t) => {
+          const icon = t.id === 'queue' ? 'cards' : t.id === 'mistakes' ? 'flag'
+            : t.id === 'words' ? 'book' : 'sparkles'
+          const active = tab === t.id
+          return (
+            <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-pressed={active}
+              className={`rv-entry flex min-h-[60px] items-center gap-2.5 rounded-2xl px-3 text-left transition ${
+                active ? 'rv-entry-active' : 'rv-entry-idle'}`}>
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                active ? 'bg-white/90 text-brand-600' : 'bg-brand-50 text-brand-500'}`}>
+                <Icon name={icon} size={17} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-bold">{t.label}</span>
+                <span className="block text-[10px] opacity-70">{t.count} 项</span>
+              </span>
+            </button>
+          )
+        })}
       </div>
 
-      {/* 间隔重复队列 */}
+      {/* 全部复习队列：由顶部「开始复习」进入，完整列表按需查看 */}
       {tab === 'queue' && (
         <section>
-          <SectionTitle title="间隔重复队列" subtitle="答对就拉长间隔，忘了就今天再见一次。" />
+          <SectionTitle title="全部复习队列" subtitle={`共 ${queue.length} 张，按到期时间排序；作答后自动重新排程。`} />
           {queue.length === 0 ? (
             <EmptyState emblem="🗓️" title="队列还是空的" desc="完成一场对话后，新词、短语和易错表达会自动排进来。"
               action={<button type="button" onClick={() => navigate('home')} className="btn-primary">去开始对话</button>} />
           ) : (
-            <div className="space-y-2.5">
-              {queue.map((item) => {
-                const due = item.dueAt <= Date.now()
-                return (
-                  <Card key={item.id} className={due ? '!border-brand-200' : ''}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Chip tone={item.kind === 'mistake' ? 'coral' : item.kind === 'phrase' ? 'mint' : 'brand'}>
-                            {item.kind === 'mistake' ? '错题' : item.kind === 'phrase' ? '短语' : '单词'}
-                          </Chip>
-                          <Chip tone={due ? 'sun' : 'slate'}>{dueLabel(item)}</Chip>
-                          <span className="text-[10px] text-muted">第 {item.level + 1} 阶</span>
-                        </div>
-                        <p className="en-text mt-2 break-words text-base font-bold text-ink">{item.content}</p>
-                        <p className="mt-1 text-xs text-brand-600">{item.meaning}</p>
-                        <p className="en-text mt-1.5 text-xs italic leading-relaxed text-muted">{item.example}</p>
-                        {item.lastReviewedAt && <p className="mt-1.5 text-[10px] text-muted">上次复习：{formatDate(item.lastReviewedAt)}</p>}
-                      </div>
-                      <button type="button" onClick={() => speak(item.content, data.settings)} aria-label="朗读卡片"
-                        className="text-brand-500 hover:text-brand-700"><Icon name="speaker" size={16} /></button>
-                    </div>
-                    <div className="mt-3 flex gap-2 border-t border-brand-50 pt-3">
-                      <button type="button" onClick={() => answer(item, false)} className="btn-ghost flex-1 !py-2 !text-xs">
-                        <Icon name="refresh" size={14} />再练一次</button>
-                      <button type="button" onClick={() => answer(item, true)} className="btn-primary flex-1 !py-2 !text-xs">
-                        <Icon name="check" size={14} />记住了</button>
-                    </div>
-                  </Card>
-                )
-              })}
-            </div>
+            <div className="space-y-2.5">{queue.map((item) => renderQueueCard(item))}</div>
           )}
         </section>
       )}

@@ -215,7 +215,7 @@ export function FreeTalk() {
                 data-testid={`freetalk-character-${c.id}`}
                 aria-pressed={active}
                 className={cn(
-                  'flex w-[104px] shrink-0 flex-col items-center gap-1 rounded-3xl border-2 px-2 py-2.5 text-center transition',
+                  'flex w-[104px] shrink-0 flex-col items-center gap-1 rounded-3xl border-2 px-2 py-2.5 text-center transition-transform duration-150 active:scale-90',
                   active
                     ? 'border-transparent bg-white shadow-card'
                     : 'border-white/70 bg-white/55 hover:bg-white/80',
@@ -302,7 +302,7 @@ export function FreeTalk() {
             return (
               <div key={m.id} className="flex animate-in flex-col items-end">
                 <div className="mb-1 flex items-center gap-1.5 pr-1 text-[10px] font-bold text-muted">你</div>
-                <div className="max-w-[86%] rounded-3xl rounded-tr-lg bg-ink/85 px-4 py-2.5 text-white shadow-card">
+                <div className="ff-msg-pop max-w-[86%] rounded-3xl rounded-tr-lg bg-ink/85 px-4 py-2.5 text-white shadow-card">
                   <p className="en-text text-[15px] leading-relaxed">{m.text}</p>
                 </div>
               </div>
@@ -316,9 +316,27 @@ export function FreeTalk() {
                 <p className="mb-1 text-[10px] font-bold text-muted">
                   {character.name} · {FAT_FISH_ACCENT_LABELS[accent]}
                 </p>
-                <div className={cn('ff-bubble relative rounded-3xl rounded-tl-lg border px-4 py-3 shadow-card',
+                <div className={cn('ff-msg-pop ff-bubble relative rounded-3xl rounded-tl-lg border px-4 py-3 shadow-card',
                   speaking && 'ring-2 ring-offset-1')}
                   style={speaking ? { boxShadow: `0 0 0 3px ${character.theme.glow}` } : undefined}>
+                  {/* 角色彩蛋：只挂最后一条，避免长会话里 N 条历史消息常驻 2N 个无限动画；
+                      纯装饰，不参与朗读与无障碍树。aria-hidden + pointer-events:none 不拦点击。 */}
+                  {i === messages.length - 1 && character.id === 'salaryman' && (
+                    <>
+                      <span className="ff-food-drop" aria-hidden="true"
+                        style={{ left: '18%', fontSize: 17, animationDelay: '0ms' }}>🍚</span>
+                      <span className="ff-food-drop" aria-hidden="true"
+                        style={{ left: '68%', fontSize: 15, animationDelay: '520ms' }}>🍗</span>
+                    </>
+                  )}
+                  {i === messages.length - 1 && character.id === 'loli' && (
+                    <>
+                      <span className="ff-sparkle" aria-hidden="true"
+                        style={{ left: '12%', top: '-6px', fontSize: 14, animationDelay: '0ms' }}>✨</span>
+                      <span className="ff-sparkle" aria-hidden="true"
+                        style={{ right: '14%', top: '38%', fontSize: 11, animationDelay: '620ms' }}>✨</span>
+                    </>
+                  )}
                   <p className="en-text text-[15px] leading-relaxed text-ink">{m.text}</p>
                   {speaking && (
                     <span data-testid="freetalk-wave" aria-hidden="true"

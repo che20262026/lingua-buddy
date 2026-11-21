@@ -35,14 +35,14 @@ export const FAT_FISH_FALLBACKS: Record<FatFishId, FatFishFallback> = {
     pronunciation: '刚才那个 /θ/ 的发音，舌头要稍微伸出来一点哦~ 像小蛇吐信子那样轻轻送气~',
   },
   onee: {
-    reply: "{tone} How fascinating. Tell me a little more about {topic}, if you would.",
-    feeling: '{tone}这段对话相当愉快。你提到的 {topic}，我倒是觉得还有一两个角度可以聊。',
-    pronunciation: '刚才那个词尾的辅音收得太急了，让它在舌尖多停半拍，读起来会从容许多。',
+    reply: "{tone} Right, I'll circle back to that. Give me the quick version on {topic} — my bandwidth's tight today.",
+    feeling: '{tone}这段对话相当高效，多谢配合。你提到的 {topic}，我已经记进 action item 了，咱们回头 touch base。',
+    pronunciation: '刚才那个词尾的辅音收得太急了，让它在舌尖多停半拍——就算赶 deadline，发音也别赶。',
   },
   salaryman: {
-    reply: '{tone} Right then, give me two minutes on {topic} — the rest of the to-do list can wait.',
-    feeling: '{tone}还行吧，至少今天不用加班谈 {topic} 了。挺好，真的。',
-    pronunciation: '刚才那个重音落错了位置，把重音挪到第一个音节上，整句话立刻就立起来了。',
+    reply: '{tone} Tell me more about {topic} — I\'ve got room for one more bite, always.',
+    feeling: '{tone}和你聊天太香了！你说的 {topic} 我听得口水都要流下来啦，下次咱们边吃边聊~',
+    pronunciation: '刚才那个 /θ/ 的音，舌尖轻轻伸出来一点就好——别急，好饭不怕晚，慢慢把这个音送准。',
   },
   rocker: {
     reply: "{tone} Let's rock! {topic} sounds like the opening riff of a great song!",

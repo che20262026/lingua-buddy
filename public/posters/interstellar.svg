@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="420" viewBox="0 0 300 420" role="img" aria-label="星际穿越 占位海报">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#0f172a"/></linearGradient></defs>
+  <rect width="300" height="420" fill="url(#g)"/>
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="3">
+    <circle cx="150" cy="150" r="92"/><circle cx="150" cy="150" r="70"/>
+  </g>
+  <g transform="translate(126 126) scale(2)" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3a9 9 0 100 18 9 9 0 000-18z M12 8v8"/>
+  </g>
+  <rect x="0" y="300" width="300" height="120" fill="#000000" fill-opacity="0.28"/>
+  <text x="150" y="344" font-family="sans-serif" font-size="24" font-weight="700" fill="#ffffff" text-anchor="middle">星际穿越</text>
+  <text x="150" y="376" font-family="sans-serif" font-size="13" letter-spacing="2" fill="#ffffff" fill-opacity="0.8" text-anchor="middle">INTERSTELLAR</text>
+  <text x="150" y="400" font-family="sans-serif" font-size="10" fill="#ffffff" fill-opacity="0.6" text-anchor="middle">LinguaBuddy · 占位海报</text>
+</svg>

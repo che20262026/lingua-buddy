@@ -3,7 +3,14 @@ import {
   type ReactNode,
 } from 'react'
 import type { PersistedData, View } from '../types'
-import { clearAllData, DEFAULT_DATA, DEFAULT_SETTINGS, loadData, saveData } from '../lib/storage'
+import {
+  clearAllData, DEFAULT_DATA, DEFAULT_SETTINGS, loadData, saveData, migrateBigTextStorage,
+} from '../lib/storage'
+/** [大数据迁移] IndexedDB 正文水合：内置条目走 bundle，自定义条目从库里补回 */
+import { clearBigText, getBigTextBackend } from '../lib/db'
+import { hydrateCulture, hydrateLibrary } from '../lib/bigText'
+import type { LiteraryBook } from '../literaryTypes'
+import type { CultureVideo } from '../cultureTypes'
 import { configureGenerator } from '../services/dialogueDirector'
 /** [新增] 文学模块两个可替换服务与轻量迁移 */
 import { configureAnalyzer } from '../services/literaryAnalyzer'
@@ -80,13 +87,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = useState<NavParams>({})
   const [toast, setToast] = useState<string | null>(null)
   const [draftText, setDraftText] = useState('')
+  /**
+   * [大数据迁移] 首次写盘闸门：IndexedDB 水合完成前不得落盘。
+   * 否则「旧存档正文还在 localStorage、内存已合并全量」时抢先写入
+   * 会把正文按索引形态截短，而 IndexedDB 里还没有副本 —— 直接丢数据。
+   */
+  const [bigTextReady, setBigTextReady] = useState(false)
   const prevRef = useRef<PersistedData | undefined>(undefined)
   const toastTimer = useRef<number | undefined>(undefined)
 
+  /**
+   * [大数据迁移] 启动水合（纯本地、异步、失败静默）：
+   *   1) 把旧 localStorage 的正文搬进 IndexedDB，原键换成轻量索引；
+   *   2) 从 IndexedDB 把自定义书 / 同步视频的正文补回内存态；
+   *   3) 全程不阻塞首屏，IndexedDB 不可用时原样跳过（保持旧行为）。
+   * 2.5s 兜底解锁：即使存储层异常卡住，也不能让首次写盘永久停摆。
+   */
   useEffect(() => {
+    let cancelled = false
+    const fallback = window.setTimeout(() => {
+      if (!cancelled) setBigTextReady(true)
+    }, 2500)
+    void (async () => {
+      try {
+        await migrateBigTextStorage()
+        const backend = await getBigTextBackend()
+        if (!backend.persistent) return // 降级模式：正文仍留在 localStorage，无需水合
+        const [books, videos] = await Promise.all([backend.listBooks(), backend.listMedias()])
+        if (cancelled) return
+        if (books.length) {
+          setData((prev) => ({ ...prev, library: hydrateLibrary(prev.library, books as LiteraryBook[]) }))
+        }
+        if (videos.length) {
+          setData((prev) => ({
+            ...prev,
+            cultureVideos: hydrateCulture(prev.cultureVideos, videos as CultureVideo[]),
+          }))
+        }
+      } catch (err) {
+        console.warn('[LinguaBuddy] 大文本水合被跳过（不影响原有数据）：', err)
+      } finally {
+        if (!cancelled) {
+          window.clearTimeout(fallback)
+          setBigTextReady(true)
+        }
+      }
+    })()
+    return () => { cancelled = true; window.clearTimeout(fallback) }
+  }, [])
+
+  useEffect(() => {
+    if (!bigTextReady) return
     saveData(data, prevRef.current)
     prevRef.current = data
-  }, [data])
+  }, [data, bigTextReady])
 
   useEffect(() => {
     configureGenerator(data.settings)
@@ -150,6 +204,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const resetAll = useCallback(() => {
     clearAllData()
+    /** [大数据迁移] 31 键与 IndexedDB 两张表一并清空，避免残留正文下次冷启动又被水合回来 */
+    void clearBigText()
     setData(structuredClone(DEFAULT_DATA))
     prevRef.current = undefined
     setDraftText('')

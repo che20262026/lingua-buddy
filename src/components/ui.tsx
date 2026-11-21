@@ -138,8 +138,12 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
   return (
     <button type="button" role="switch" aria-checked={checked} aria-label={label}
       onClick={() => onChange(!checked)}
-      className={cn('relative h-7 w-12 shrink-0 rounded-full transition', checked ? 'bg-brand-500' : 'bg-slate-200')}>
-      <span className={cn('absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all', checked ? 'left-6' : 'left-1')} />
+      className="relative flex h-11 w-12 shrink-0 items-center justify-center">
+      {/* [任务C] 触控热区 44px（外层 button），视觉轨道仍是 28px（内层 span），两者互不影响 */}
+      <span aria-hidden="true"
+        className={cn('pointer-events-none absolute left-0 top-2 h-7 w-12 rounded-full transition', checked ? 'bg-brand-500' : 'bg-slate-200')}>
+        <span className={cn('absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all', checked ? 'left-6' : 'left-1')} />
+      </span>
     </button>
   )
 }
@@ -205,7 +209,7 @@ export function Modal({ open, title, desc, confirmText = '确认', cancelText = 
 export function Toast({ message }: { message: string | null }) {
   if (!message) return null
   return (
-    <div className="pointer-events-none fixed left-1/2 top-5 z-[60] w-[min(90vw,420px)] -translate-x-1/2 animate-in">
+    <div className="pointer-events-none fixed left-1/2 top-5 z-[60] w-[min(90vw,420px)] -translate-x-1/2 animate-in-centered">
       <div className="rounded-2xl bg-ink px-4 py-3 text-center text-sm font-semibold text-white shadow-float">{message}</div>
     </div>
   )

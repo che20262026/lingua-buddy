@@ -63,7 +63,29 @@ export function DesktopPet({
 
           {/* 思考中的头顶问号 + 旋转虚线圈 */}
           {state === 'thinking' && (
-            <span className="dp-question" aria-hidden="true">?</span>
+            <>
+              <span className="dp-question" aria-hidden="true">?</span>
+              {/* 吐泡泡：三颗错峰上浮；工作大肥鱼换成疲惫的 ☕ + 🥱 */}
+              {character.id === 'onee' ? (
+                <>
+                  <span className="ff-think-bubble ff-work-coffee" aria-hidden="true"
+                    style={{ left: '58%', width: 18, height: 18, fontSize: 13 }}>☕</span>
+                  <span className="ff-think-bubble ff-work-coffee" aria-hidden="true"
+                    style={{ left: '26%', width: 16, height: 16, fontSize: 14, animationDelay: '480ms' }}>🥱</span>
+                </>
+              ) : (
+                [0, 1, 2].map((k) => (
+                  <span key={k} className="ff-think-bubble" aria-hidden="true"
+                    style={{
+                      left: `${22 + k * 18}%`,
+                      width: 6 + k * 2,
+                      height: 6 + k * 2,
+                      animationDelay: `${k * 380}ms`,
+                      ['--ff-bubble-drift' as string]: `${6 + k * 6}px`,
+                    }} />
+                ))
+              )}
+            </>
           )}
 
           {/* happy：蹦一下 + 冒爱心 */}

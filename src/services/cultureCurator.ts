@@ -125,8 +125,9 @@ export function toVideoListItem(
     blurb: video.blurb,
     nativeCaptions: video.nativeCaptions,
     watched,
-    segmentCount: video.segments.length,
-    expressionCount: video.seedExpressions.length,
+    /** [大数据迁移] 内容素材搬去 IndexedDB 后，计数由索引自带，显示与全量时一致 */
+    segmentCount: video.segmentCount ?? (video.segments ? video.segments.length : 0),
+    expressionCount: video.expressionCount ?? (video.seedExpressions ? video.seedExpressions.length : 0),
     reason: recommendReason(video, target, watched),
   }
 }

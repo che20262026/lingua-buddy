@@ -43,19 +43,27 @@ body {
 
 .btn-primary {
   @apply inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-500 px-5 py-3 text-sm font-bold text-white shadow-soft transition active:scale-[0.98] hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50;
+  min-height: 44px; /* [任务C] 触控热区下限 */
 }
 
 .btn-ghost {
   @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-brand-100 bg-white px-4 py-2.5 text-sm font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+  min-height: 44px; /* [任务C] 触控热区下限，视觉 padding 不变 */
 }
+
+/** [任务C] 设置页内联分段选择按钮：视觉密度不变，命中高度补足 44px */
+.seg-btn { min-height: 44px; }
 
 .chip {
   @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
 }
 
 .field {
-  @apply w-full rounded-2xl border border-brand-100 bg-white px-4 py-3 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-brand-400 focus:ring-4 focus:ring-brand-100;
+  /* [任务C] 16px 起：iOS Safari 在 input/select/textarea 字号 <16px 时聚焦会强制放大整页 */
+  @apply w-full rounded-2xl border border-brand-100 bg-white px-4 py-3 text-base text-ink outline-none transition placeholder:text-muted/70 focus:border-brand-400 focus:ring-4 focus:ring-brand-100;
 }
+/* 键盘弹起时输入框与保存按钮仍可见；长 URL / Key 允许任意处断行不撑破卡片 */
+.field { overflow-wrap: anywhere; word-break: break-word; }
 
 .en-text {
   font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
@@ -89,11 +97,27 @@ body {
 
 @keyframes float-in {
   from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  /* 终点必须是 none 而不是 translateY(0)：任何非 none 的 transform 都会给
+     fixed 后代创建包含块，并把元素自身的 Tailwind transform 工具类顶掉。 */
+  to { opacity: 1; transform: none; }
+}
+
+/* 居中固定浮层的专用入场：把水平 -50% 写进关键帧。
+   通用 .animate-in 的 transform 会覆盖 Tailwind 的 -translate-x-1/2，
+   导致 fixed 居中浮层（更新提示 / 升级横幅 / Toast）右移半个身位被裁切。 */
+@keyframes float-in-centered {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
 .animate-in {
-  animation: float-in 0.34s ease-out both;
+  /* 用 backwards 而非 both：动画结束后回归元素自身的样式，
+     hover 位移与后代 fixed 定位都不再被动画残留的 transform 顶掉。 */
+  animation: float-in 0.34s ease-out backwards;
+}
+
+.animate-in-centered {
+  animation: float-in-centered 0.34s ease-out both;
 }
 
 @keyframes pulse-ring {
@@ -241,7 +265,8 @@ details > summary::-webkit-details-marker { display: none; }
   .skeleton-bar,
   .skeleton-track { animation: none; }
   .skeleton-track { width: 100%; opacity: 0.45; }
-  .animate-in { animation: none; }
+  .animate-in,
+  .animate-in-centered { animation: none; }
   /* [大肥鱼] 朗读动作全部关掉：形象仍然清晰可辨，只是不再蹦跶 */
   .ff-avatar,
   .ff-avatar-speaking { animation: none !important; }
@@ -286,7 +311,7 @@ details > summary::-webkit-details-marker { display: none; }
   70%      { transform: translateY(-8%) scale(0.98, 1.02); }
 }
 
-/* —— 萝莉：左右摇摆（幅度大、节奏慢，像在摇头晃脑） —— */
+/* —— 青春：左右摇摆（幅度大、节奏慢，像在摇头晃脑） —— */
 @keyframes ff-sway {
   0%, 100% { transform: rotate(-7deg) translateX(0); }
   25%      { transform: rotate(7deg) translateX(6%); }
@@ -294,13 +319,13 @@ details > summary::-webkit-details-marker { display: none; }
   75%      { transform: rotate(5deg) translateX(-4%); }
 }
 
-/* —— 御姐：缓慢慵懒的上下浮动（幅度最小、周期最长） —— */
+/* —— 工作大肥鱼：缓慢疲惫的上下浮动（幅度最小、周期最长） —— */
 @keyframes ff-float {
   0%, 100% { transform: translateY(0) rotate(-1deg); }
   50%      { transform: translateY(-9%) rotate(1deg); }
 }
 
-/* —— 社畜：疲惫的细碎抖动 —— */
+/* —— 吃饭大肥鱼：急着干饭的细碎抖动 —— */
 @keyframes ff-jitter {
   0%, 100% { transform: translate(0, 0) rotate(0deg); }
   20%      { transform: translate(-1.4px, 0.8px) rotate(-0.8deg); }
@@ -323,14 +348,14 @@ details > summary::-webkit-details-marker { display: none; }
   50%      { transform: translateY(5%) rotate(3deg); }
 }
 
-/* 朗读时才真正播放动作；未朗读时只保留极轻的呼吸 */
+/* 朗读时才真正播放动作；未朗读时保留温和的 3px 呼吸（3s，只动 transform） */
 @keyframes ff-idle {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50%      { transform: translateY(-2%) scale(1.01); }
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
 }
 
 .ff-avatar:not(.ff-avatar-speaking) {
-  animation: ff-idle 4.2s ease-in-out infinite;
+  animation: ff-idle 3s ease-in-out infinite;
 }
 
 .ff-avatar-speaking.ff-motion-bounce { animation: ff-bounce 0.46s cubic-bezier(0.3, 0.9, 0.4, 1) infinite; }
@@ -346,7 +371,78 @@ details > summary::-webkit-details-marker { display: none; }
   40%           { transform: translateY(-5px); opacity: 1; }
 }
 
-/* [语音输入] 麦克风听写中：只动 transform / opacity，不触发 layout */
+/* ---------------- [动效增强] 陪伴感：消息弹性 / 思考泡泡 / 角色彩蛋 ----------------
+ * 全部只动 transform + opacity，绝不碰 width/height/top 等触发重排的属性；
+ * 每个动画都在本节末尾与既有 reduced-motion 块中双重关闭。
+ */
+
+/* 新消息气泡：弹性入场 scale(0.9) → 1.05 → 1，300ms。
+   挂在气泡内层（.ff-bubble 所在节点），外层 .animate-in 保留不动——
+   冒烟用 .animate-in 的数量当气泡计数器，且它承载 fixed 包含块契约。 */
+@keyframes ff-msg-pop {
+  0%   { transform: scale(0.9); opacity: 0; }
+  60%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.ff-msg-pop { animation: ff-msg-pop 300ms cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards; }
+
+/* 思考吐泡泡：三颗小气泡从嘴边向上漂浮，错峰、淡出。纯 transform/opacity。 */
+@keyframes ff-think-bubble {
+  0%   { transform: translate3d(0, 4px, 0) scale(0.5); opacity: 0; }
+  30%  { opacity: 0.9; }
+  100% { transform: translate3d(var(--ff-bubble-drift, 8px), -26px, 0) scale(1.1); opacity: 0; }
+}
+.ff-think-bubble {
+  position: absolute;
+  bottom: 100%;
+  border-radius: 999px;
+  background: var(--ff-bubble);
+  border: 1px solid var(--ff-ring);
+  pointer-events: none;
+  animation: ff-think-bubble 1.6s ease-out infinite;
+}
+
+/* 工作大肥鱼：思考时疲惫的细碎抖动（以更高特异性替换通用 dp-think，非叠加） */
+@keyframes ff-tired-jitter {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25%      { transform: translateY(1px) rotate(-1deg); }
+  50%      { transform: translateY(-1px) rotate(1deg); }
+  75%      { transform: translateY(0.5px) rotate(-0.5deg); }
+}
+.dp-state-thinking.ff-motion-float .dp-body { animation: ff-tired-jitter 1.4s ease-in-out infinite; }
+/* 工作鱼的咖啡杯：去掉泡泡的边框/底色，只留 emoji 本身上浮 */
+.ff-work-coffee {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border-color: transparent;
+}
+
+/* 角色彩蛋：吃饭收到消息掉落饭粒 emoji；青春对话闪烁星星。
+   都是 absolute + pointer-events:none，不占流、不拦截点击。 */
+@keyframes ff-food-drop {
+  0%   { transform: translate3d(0, -14px, 0) scale(0.6) rotate(-12deg); opacity: 0; }
+  30%  { transform: translate3d(0, -4px, 0) scale(1.1) rotate(6deg); opacity: 1; }
+  100% { transform: translate3d(0, 12px, 0) scale(0.95) rotate(-4deg); opacity: 0; }
+}
+.ff-food-drop {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+  animation: ff-food-drop 1.2s ease-in-out infinite;
+}
+
+@keyframes ff-sparkle {
+  0%, 100% { transform: scale(0.6) rotate(0deg); opacity: 0; }
+  50%      { transform: scale(1.2) rotate(20deg); opacity: 1; }
+}
+.ff-sparkle {
+  position: absolute;
+  pointer-events: none;
+  animation: ff-sparkle 1.8s ease-in-out infinite;
+}
+
+/* 语音输入动效同样尊重系统「减少动态效果」设置 */
 @keyframes ff-mic-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
   50%      { transform: scale(1.09); opacity: 0.82; }
@@ -368,6 +464,17 @@ details > summary::-webkit-details-marker { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .ff-mic-live { animation: none; }
   .pron-mic-live { animation: none; }
+  /* [动效增强] 消息弹性 / 思考泡泡 / 疲惫抖动 / 角色彩蛋一律关闭；
+     静态元素保持原位，语义由文本与 aria 承载，不影响可读与可点。 */
+  .ff-msg-pop {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .ff-think-bubble,
+  .ff-food-drop,
+  .ff-sparkle { animation: none !important; opacity: 0; }
+  .dp-state-thinking.ff-motion-float .dp-body { animation: none !important; }
 }
 
 /* ---------------- [兼容降级] 语音不可用弹窗 ----------------
@@ -495,7 +602,7 @@ details > summary::-webkit-details-marker { display: none; }
 .dp-state-idle.ff-motion-bounce .dp-body     { animation: dp-idle-elf 1.6s ease-in-out infinite; }
 .dp-state-thinking.ff-motion-bounce .dp-body { animation: dp-think-elf 0.85s ease-in-out infinite; }
 
-/* 萝莉·青年：待机左右摇摆，说话幅度小且可爱 */
+/* 青春·青年：待机左右摇摆，说话幅度小且可爱 */
 @keyframes dp-idle-loli {
   0%, 100% { transform: rotate(-6deg); }
   50%      { transform: rotate(6deg); }
@@ -507,7 +614,7 @@ details > summary::-webkit-details-marker { display: none; }
 .dp-state-idle.ff-motion-sway .dp-body     { animation: dp-idle-loli 2.8s ease-in-out infinite; }
 .dp-state-speaking.ff-motion-sway .dp-body { animation: dp-speak-loli 0.9s ease-in-out infinite; }
 
-/* 御姐·成年：待机慵懒地趴着，说话优雅缓慢 */
+/* 工作大肥鱼·成年：待机疲惫地趴着，说话缓慢克制 */
 @keyframes dp-idle-onee {
   0%, 100% { transform: translateY(2%) rotate(-1deg) scaleY(0.98); }
   50%      { transform: translateY(-2%) rotate(1deg) scaleY(1.02); }
@@ -887,13 +994,202 @@ nav .glass {
 }
 
 /* ============================================================
+   书架（文学研读）信息流：Feed 视觉令牌
+   只复用既有 brand 蓝 / mint 绿 / sun 琥珀 / coral 珊瑚四组色阶，
+   不引入参考图里的政治资讯红与导航蓝撞色。
+   ============================================================ */
+
+/* 顶部搜索胶囊：整条可点，命中区 ≥44px */
+.lf-search-pill {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 18px -10px rgba(38, 62, 130, 0.32);
+  color: #6b7592;
+  transition: transform 160ms ease-out, box-shadow 220ms ease-out;
+}
+.lf-search-pill:active { transform: scale(0.985); }
+.lf-search-pill span {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 横滑分类 Tab：选中项品牌主色 + 底部高亮指示条 */
+.lf-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.lf-tabs::-webkit-scrollbar { display: none; }
+.lf-tab {
+  position: relative;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 9px 14px 11px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #6b7592;
+  white-space: nowrap;
+  transition: color 180ms ease-out;
+}
+.lf-tab::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: #3b6bf4;
+  transform: translateX(-50%);
+  transition: width 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lf-tab:hover { color: #2a51d8; }
+.lf-tab-active { color: #2a51d8; font-weight: 900; }
+.lf-tab-active::after { width: 60%; }
+
+/* 纯文字快讯：小圆点呼吸，提示这是「活的」列表 */
+.lf-brief-dot {
+  animation: lf-dot-breathe 2.4s ease-in-out infinite;
+}
+@keyframes lf-dot-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50%      { transform: scale(1.5); opacity: 0.5; }
+}
+
+/* 大图头条：书籍自身渐变作底 + 压图蒙版（书架的记忆点） */
+.lf-hero-cover { position: relative; overflow: hidden; border-radius: 22px; }
+.lf-hero-veil {
+  background: linear-gradient(to top, rgba(12, 18, 38, 0.92) 0%,
+    rgba(12, 18, 38, 0.58) 46%, rgba(12, 18, 38, 0) 100%);
+}
+.lf-hero-mark {
+  animation: lf-mark-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+@keyframes lf-mark-rise {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 底部悬浮胶囊：书架内部专属工具条，不动全局 7 项导航 */
+.lf-dock {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  z-index: 30;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  max-width: min(94vw, 430px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 40px -20px rgba(38, 62, 130, 0.5);
+}
+.lf-dock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  color: #2a51d8;
+  transition: transform 160ms ease-out, background-color 180ms ease-out;
+}
+.lf-dock-btn:active { transform: scale(0.96); }
+.lf-dock-btn:disabled { color: #6b7592; opacity: 0.45; }
+
+/* 全屏搜索层：底部升起的整屏面板，不新增路由 */
+.lf-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  animation: lf-sheet-up 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes lf-sheet-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+.lf-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background: rgba(16, 24, 48, 0.42);
+}
+
+/* 降级：系统「减少动态效果」下关闭书架信息流动效 */
+@media (prefers-reduced-motion: reduce) {
+  .lf-search-pill,
+  .lf-tab,
+  .lf-tab::after,
+  .lf-dock-btn { transition: none; }
+  .lf-search-pill:active,
+  .lf-dock-btn:active { transform: none; }
+  .lf-brief-dot,
+  .lf-hero-mark { animation: none; }
+  .lf-sheet { animation: none; }
+  /* 开场动画：直接切换，不做淡入淡出与位移 */
+  .splash-mark,
+  .splash-line,
+  .splash-chip { animation: none; }
+  .splash-leave { animation: none; opacity: 0; }
+}
+
+/* ============================================================
+   应用开场动画：原首页蓝底 Hero 的继任者（冷启动播一次）
+   只动 opacity / transform；reduced-motion 下直接切换不淡入淡出。
+   ============================================================ */
+@keyframes splash-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes splash-fade {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+.splash-root { opacity: 1; }
+.splash-leave { animation: splash-fade 520ms ease-out forwards; }
+.splash-mark { animation: splash-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.splash-line { animation: splash-rise 620ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both; }
+.splash-chip { animation: splash-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* ============================================================
+   弹层滚动收敛：遮罩与面板各自 contain 滚动链，
+   滚动到边界时不会把背后的页面一起带着滚。
+   （不去锁 html / body 的 overflow —— 那会让页面位置跳回顶部）
+   ============================================================ */
+.dlg-backdrop { overscroll-behavior: contain; overflow: hidden; }
+.dlg-panel { overscroll-behavior: contain; }
+
+/* ============================================================
    Word Lab 沉浸式背词舞台（参考图2：纵深渐变 + 居中焦点 + 毛玻璃操作区）
    只用本项目 brand 蓝 / mint 绿 / 白，不照搬参考图的橙色与青色。
    ============================================================ */
 .wl-stage {
   position: relative;
   isolation: isolate;
-  min-height: calc(100vh - 150px);
+  min-height: calc(100dvh - 150px);
   margin: 0 -0.25rem;
   padding: 1.25rem 0.75rem 6rem;
   border-radius: 28px;
@@ -941,4 +1237,118 @@ nav .glass {
   .wl-stage::before { background-attachment: scroll; }
   .wl-choice { transition: none; }
   .wl-choice:active { transform: none; }
+}
+
+/* ============================================================
+   复习页分区入口：降噪后的 2×2 网格（只用项目既有 brand 色）
+   ============================================================ */
+.rv-entry {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, .92);
+  color: #1f2a44;
+  box-shadow: 0 2px 10px rgba(42, 81, 216, .06);
+  transition: transform 160ms ease-out, background-color 180ms ease-out;
+}
+.rv-entry-idle { background: #fff; }
+.rv-entry-active {
+  background: linear-gradient(135deg, #3b6bf4 0%, #2a51d8 100%);
+  color: #fff;
+  border-color: rgba(255, 255, 255, .35);
+  box-shadow: 0 8px 20px rgba(59, 107, 244, .22);
+}
+.rv-entry:active { transform: scale(.985); }
+
+/* ============================================================
+   设置页：系统设置风格分组列表（浅灰底 + 白卡 + 行分隔线）
+   参考 MIUI 设置页的「彩色圆图标 / 标题 / 灰值 / 箭头」节奏，
+   色值只用项目既有 brand/mint/sun/coral 色阶（在 TSX 里以 Tailwind 类应用）。
+   ============================================================ */
+.settings-page {
+  min-height: 100dvh;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+.settings-group { margin-bottom: 14px; }
+.settings-group-title {
+  padding: 0 4px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: #8a90a0;
+}
+.settings-group-card {
+  overflow: hidden;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+}
+.settings-row {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: #1a1d24;
+}
+button.settings-row { cursor: pointer; }
+button.settings-row:active { background: #f4f6fa; }
+/* 分隔线从文字起点开始，右侧留白到边缘（系统设置页的细线节奏） */
+.settings-row + .settings-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 58px;
+  right: 0;
+  height: 1px;
+  background: #eef0f3;
+}
+.settings-row-icon {
+  display: inline-flex;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 16px;
+  line-height: 1;
+}
+.settings-row-main { min-width: 0; flex: 1 1 auto; }
+.settings-row-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.settings-group-card--danger .settings-row-title { color: #d94a3d; }
+.settings-row-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #8a90a0;
+  overflow-wrap: anywhere;
+}
+.settings-row-value {
+  flex: 0 0 auto;
+  max-width: none;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8a90a0;
+}
+.settings-row-chevron { flex: 0 0 auto; color: #c4c8d0; }
+/* 分组内的自定义内容块（开关组 / 分段按钮 / 子组件）保持原生卡片的内边距 */
+.settings-inline { padding: 12px 14px 14px; }
+.settings-inline + .settings-inline { border-top: 1px solid #eef0f3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rv-entry { transition: none; }
+  .rv-entry:active { transform: none; }
 }

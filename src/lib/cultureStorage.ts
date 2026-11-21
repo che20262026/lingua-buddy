@@ -17,6 +17,7 @@ import {
   DEFAULT_WATCH_PROGRESS,
 } from '../data/cultureSeed'
 import { DEFAULT_PLAYLIST_REGISTRY } from '../data/playlistRegistrySeed'
+import { toVideoStub } from './bigText'
 import type { CultureLibraryState, CultureVideo } from '../cultureTypes'
 import type { LibraryVideoEntry } from '../cultureLibraryTypes'
 
@@ -50,7 +51,15 @@ export function migrateCultureData(): CultureMigrationReport {
   }
 
   const defaults: Record<string, unknown> = {
-    [KEYS.cultureVideos]: DEFAULT_CULTURE_LIBRARY,
+    /**
+     * [大数据迁移] 只播种**索引**：标题 / 主题 / 封面 / 时长 / 白名单元数据。
+     * 分段、短引用、文化背景卡、研讨问题等正文由 bundle 兜底，
+     * 同步来的条目正文进 IndexedDB —— localStorage 不再背 120KB 正文。
+     */
+    [KEYS.cultureVideos]: {
+      ...DEFAULT_CULTURE_LIBRARY,
+      videos: DEFAULT_CULTURE_LIBRARY.videos.map(toVideoStub),
+    },
     [KEYS.watchProgress]: DEFAULT_WATCH_PROGRESS,
     [KEYS.postWatchSessions]: DEFAULT_POSTWATCH_SESSIONS,
     [KEYS.cultureNotes]: DEFAULT_CULTURE_NOTES,
@@ -92,7 +101,8 @@ export function migrateCultureData(): CultureMigrationReport {
           })
           const next: CultureLibraryState = {
             seedVersion: CULTURE_SEED_VERSION,
-            videos: [...kept, ...dedupedSeeds],
+            /** 种子条目只留索引（正文由 bundle 兜底）；同步产物 / 自定义条目保留原样，稍后由大文本迁移搬进 IndexedDB */
+            videos: [...kept, ...dedupedSeeds.map(toVideoStub)],
           }
           ls.setItem(KEYS.cultureVideos, JSON.stringify(next))
           report.reseededVideos = dedupedSeeds.length

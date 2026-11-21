@@ -9,6 +9,7 @@ import { XpToast } from './XpToast'
 import { LevelUpBanner } from './LevelUpBanner'
 /** [PWA] 新版本只提示、由用户点「立即更新」才 reload；全局唯一挂载点 */
 import { UpdatePrompt } from './UpdatePrompt'
+import { AppSplash } from './AppSplash'
 
 /** [修改点] 追加「文化」「词场」「成长」三项；原有学习/书架/复习/进度/设置顺序与标签不变
  *  [大肥鱼自由对话] 刻意**不**新增底部导航项：底部导航固定 8 项，
@@ -57,6 +58,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="app-bg min-h-screen">
+      {/* [应用开场] 冷启动时播一次的浮现动画：原首页蓝底 Hero 的继任者 */}
+      <AppSplash />
       <Toast message={toast} />
       <XpToast enabled={data.settings.showXpAnimation} />
       <LevelUpBanner enabled={data.settings.showXpAnimation} />
@@ -90,10 +93,12 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
             <div className="flex items-center gap-1.5">
               <Chip tone="sun"><Icon name="flame" size={13} />{profile.streak} 天</Chip>
-              <button type="button" onClick={() => navigate('growth')} aria-label="打开成长页" title="打开成长页">
+              <button type="button" onClick={() => navigate('growth')} aria-label="打开成长页" title="打开成长页"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center">
                 <Chip tone="brand"><Icon name="star" size={13} />{profile.xp} XP</Chip>
               </button>
-              <button type="button" onClick={() => navigate('settings')} aria-label="个人设置">
+              <button type="button" onClick={() => navigate('settings')} aria-label="个人设置"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center">
                 <Avatar name={profile.nickname} size={32} tone="mint" />
               </button>
             </div>

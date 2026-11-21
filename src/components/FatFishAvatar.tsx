@@ -42,7 +42,7 @@ export interface FatFishAvatarProps {
 
 /** 加载失败时的 emoji 占位（按角色区分，绝不白屏） */
 const FALLBACK_EMOJI: Partial<Record<FatFishId, string>> = {
-  elf: '🧝', loli: '🍬', onee: '☕', salaryman: '🍚', rocker: '🎸', surfer: '🏄',
+  elf: '🧝', loli: '🌻', onee: '💼', salaryman: '🍚🥢', rocker: '🎸', surfer: '🏄',
 }
 
 /** 立绘资源路径：base 相对路径 + 角色 id，全部走本地 public */

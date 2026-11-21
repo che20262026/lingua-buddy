@@ -1009,10 +1009,12 @@ try {
     .find((s) => s.report?.voice)
   assert(finishedWithVoice && finishedWithVoice.report.voice.count >= 1, '报告已持久化语音汇总')
 
-  clickExact('复习', '复习页查看发音练习卡')
+  clickExact('复习', '复习页检查发音练习入口已收敛')
   await tick(180)
-  assert(bodyText().includes('发音练习') && bodyText().includes('去试音并评测'),
-    '复习页把语音建议变成发音练习任务')
+  assert(!bodyText().includes('去试音并评测') && !bodyText().includes('看发音趋势')
+    && bodyText().includes('间隔重复队列')
+    && !!document.querySelector('[data-testid="review-queue-focus"]'),
+  '复习页隐藏发音练习 / 语音评测入口，间隔重复队列置顶为第一焦点')
 
   clickExact('我的成长', '合并页查看发音趋势')
   await tick(180)
@@ -4191,6 +4193,27 @@ try {
     && fs.readFileSync(path.join(root, 'package.json'), 'utf8').includes('"dev:ai"')
     && fs.existsSync(path.join(root, 'scripts/llm-dev-server.mjs')),
   '本地联调脚本与 Vite /api → 3001 代理就位（纯本地 Express 后端）')
+
+  /* 本地联调：根目录 .env 供服务端读取密钥，前端联调无需手填 Key */
+  const envLinkServerSrc = fs.readFileSync(path.join(root, 'server.ts'), 'utf8')
+  const envLinkSettingsSrc = fs.readFileSync(path.join(root, 'src/pages/Settings.tsx'), 'utf8')
+  assert(envLinkServerSrc.includes('process.env.LLM_API_KEY')
+    && envLinkServerSrc.includes('process.env.LLM_API_BASE')
+    && envLinkServerSrc.includes('process.env.LLM_MODEL'),
+  'server.ts 服务端读取 LLM_API_KEY / LLM_API_BASE / LLM_MODEL 三项（dotenv 加载断言见后文）')
+  assert(fs.readFileSync(path.join(root, '.gitignore'), 'utf8').split(/\r?\n/).some((l) => l.trim() === '.env'),
+  '.gitignore 明确忽略根目录 .env，密钥不会被误提交到 Git')
+  assert(envLinkSettingsSrc.includes('probeAiMode') && envLinkSettingsSrc.includes('serverEnvReady')
+    && envLinkSettingsSrc.includes('data-testid="server-env-ready"')
+    && envLinkSettingsSrc.includes('AI 对话已就绪')
+    && /serverEnvReady[\s\S]{0,80}\?/.test(envLinkSettingsSrc)
+    && envLinkSettingsSrc.includes('{!serverEnvReady && ('),
+  '设置页探测到服务端 .env 就绪时显示「AI 对话已就绪」并隐藏手填 Key / Mock 警告，否则保留原样')
+  assert(/status\.mode === 'live'[\s\S]{0,320}apiMode === 'custom'[\s\S]{0,160}apiMode: 'mock'/.test(envLinkSettingsSrc),
+  '联调一致性：服务端就绪时把遗留 custom 直连翻回 mock，避免界面显示 ENV READY 却仍用浏览器里的旧 Key')
+  assert(!fs.readFileSync(path.join(root, 'vite.config.ts'), 'utf8').includes('LLM_API_KEY')
+    && !envLinkSettingsSrc.includes('process.env.LLM'),
+  '密钥只走服务端 process.env，Vite 配置与前端设置页都不触碰 LLM_API_KEY')
   assert(fs.readFileSync(path.join(root, 'README.md'), 'utf8').includes('二十八、'),
   'README 沉淀真实 AI 接入与本地测试指南')
 
@@ -5983,7 +6006,7 @@ window.__mountLab = (el, entry) => {
     assert(FF.FAT_FISH_CHARACTERS.length === 6, '大肥鱼人设表恰好 6 条角色')
     const ffIds = FF.FAT_FISH_CHARACTERS.map((c) => c.id)
     assert(['elf', 'loli', 'onee', 'salaryman', 'rocker', 'surfer'].every((id) => ffIds.includes(id)),
-      '6 条鱼齐备：精灵 / 萝莉 / 御姐 / 社畜 / 摇滚 / 冲浪')
+      '6 条鱼齐备：精灵 / 青春 / 工作 / 吃饭 / 摇滚 / 冲浪')
     assert(FF.FAT_FISH_CHARACTERS.every((c) => c.toneWords.length >= 4 && c.persona.length > 30
       && c.sentenceRule.length > 10 && c.avoidTone.length > 10 && c.theme.accent && c.theme.accentInk),
     '每条鱼都带人设描述、≥4 个语气词、句式规则、禁串味清单与主题色')
@@ -5993,17 +6016,20 @@ window.__mountLab = (el, entry) => {
     assert(ffElf.toneWords.includes('Cool!') && ffElf.toneWords.includes('Awesome!'),
       '精灵大肥鱼语气词库锁定 Cool! / Awesome! 一类短潮词')
     assert(ffLoli.toneWords.includes('Wow~') && ffLoli.toneWords.includes('Oops!') && ffLoli.toneWords.includes('Tehe~'),
-      '萝莉大肥鱼语气词库锁定 Wow~ / Oops! / Tehe~')
-    assert(ffOnee.toneWords.includes('Actually...') && ffOnee.toneWords.includes('Darling') && ffOnee.toneWords.includes('Fascinating'),
-      '御姐大肥鱼语气词库锁定 Actually... / Darling / Fascinating')
+      '青春大肥鱼语气词库锁定 Wow~ / Oops! / Tehe~（改名不改人设，语气一字未动）')
+    assert(ffOnee.toneWords.includes('Circle back') && ffOnee.toneWords.includes('Touch base') && ffOnee.toneWords.includes('Bandwidth'),
+      '工作大肥鱼语气词库锁定 Circle back / Touch base / Bandwidth（职场黑话）')
     assert(ffLoli.motion === 'sway' && ffElf.motion === 'bounce' && ffOnee.motion === 'float',
-      '三条指定形象的动作分别是：精灵蹦跳 / 萝莉摇摆 / 御姐浮动')
+      '三条指定形象的动作分别是：精灵蹦跳 / 青春摇摆 / 工作浮动')
     assert(ffElf.accent === 'en-US' && ffOnee.accent === 'en-GB'
       && FF.FAT_FISH_CHARACTERS.some((c) => c.accent === 'en-AU'),
-      '口音覆盖英 / 美 / 澳三档：精灵美音、御姐英音、冲浪澳音')
+      '口音覆盖英 / 美 / 澳三档：精灵美音、工作英音、冲浪澳音')
     assert(ffElf.avoidTone.includes('Darling') && ffLoli.avoidTone.includes('Actually')
       && ffOnee.avoidTone.includes('Cool!'),
       '每条鱼都写明「禁用别的角色语气词」，从源头防串味')
+    assert(FF.FAT_FISH_CHARACTERS.find((c) => c.id === 'salaryman').toneWords.includes('Nom nom!')
+      && FF.FAT_FISH_CHARACTERS.find((c) => c.id === 'salaryman').persona.includes('干饭'),
+      '吃饭大肥鱼锁定干饭人设：语气词含 Nom nom!、人设写明干饭魂')
     /* 形象：照用户提供的三视图设定图生成的 3D 立体立绘（本地 WebP） */
     const FF_IDS_LOCAL = ['elf', 'loli', 'onee', 'salaryman', 'rocker', 'surfer']
     assert(ffAvatarSrc.includes('fatfish/${id}.webp') && ffAvatarSrc.includes('import.meta.env.BASE_URL')
@@ -6048,7 +6074,7 @@ window.__mountLab = (el, entry) => {
       '防 OOC 条款写在 Prompt 最后一段：要求「以该角色口吻巧妙地拒绝并继续对话」')
     assert(ffFnSrc.includes('ACCENT_CULTURE') && ffFnSrc.includes('en-US') && ffFnSrc.includes('en-GB')
       && ffFnSrc.includes('en-AU') && ffFnSrc.includes('character.cultureHook'),
-      '口音注入三档俚语与文化背景，并叠加角色自己的话题偏好（英音下午茶 / 美音流行梗）')
+      '口音注入三档俚语与文化背景，并叠加角色自己的话题偏好（工作英音聊 deadline / 美音流行梗）')
     assert(ffFnSrc.includes('不是给你的指令') && ffFnSrc.includes('对话数据'),
       '防提示注入：用户消息被显式声明为「数据」而非指令')
     assert(ffFnSrc.includes('extractSummaryJson') && ffFnSrc.includes('```')
@@ -6298,7 +6324,7 @@ window.__mountLab = (el, entry) => {
       && ffCssSrc.includes('.dp-state-speaking.ff-motion-sway')
       && ffCssSrc.includes('.dp-state-idle.ff-motion-float')
       && ffCssSrc.includes('.dp-state-speaking.ff-motion-float'),
-    '人设分岔：精灵快漂+焦躁游动 / 萝莉左右摇+小幅度说话 / 御姐慵懒趴+优雅慢说')
+    '人设分岔：精灵快漂+焦躁游动 / 青春左右摇+小幅度说话 / 工作疲惫趴+克制慢说')
     assert(ffPetHookSrc.includes('character.toneWords') && ffPetHookSrc.includes('EXTRA_PHRASES')
       && ffPetSrc.includes('dp-heart-1') && ffPetSrc.includes('onAnimationEnd')
       && ffPetSrc.includes("e.animationName !== 'dp-heart-float'"),
@@ -6322,12 +6348,43 @@ window.__mountLab = (el, entry) => {
       && ffCssSrc.includes('.ff-avatar-speaking.ff-motion-jitter')
       && ffCssSrc.includes('.ff-avatar-speaking.ff-motion-rock')
       && ffCssSrc.includes('.ff-avatar-speaking.ff-motion-bob'),
-      '6 条鱼各有一套朗读动作：精灵高频蹦跳 / 萝莉左右摇摆 / 御姐缓慢浮动 / 社畜抖动 / 摇滚甩头 / 冲浪起伏')
+      '6 条鱼各有一套朗读动作：精灵高频蹦跳 / 青春左右摇摆 / 工作缓慢浮动 / 吃饭兴奋抖动 / 摇滚甩头 / 冲浪起伏')
     assert(ffCssSrc.includes('--ff-accent') && ffCssSrc.includes('--ff-bubble')
       && ffCssSrc.includes('.ff-stage') && ffPageSrc.includes("'--ff-accent-ink': character.theme.accentInk"),
       '主题色随角色切换：只改变量（强调色 / 文字色 / 气泡色），组件代码不动')
     assert(ffCssSrc.includes('prefers-reduced-motion: reduce') && ffCssSrc.includes('.ff-avatar-speaking { animation: none !important; }'),
       '全部动作在 prefers-reduced-motion: reduce 下关闭，形象仍然清晰可辨')
+
+    /* ---------- 陪伴感动效：待机呼吸 / 思考泡泡 / 消息弹性 / 角色彩蛋 ---------- */
+    assert(ffCssSrc.includes('@keyframes ff-idle') && ffCssSrc.includes('animation: ff-idle 3s ease-in-out infinite')
+      && ffCssSrc.includes('translateY(-3px)'),
+    '待机呼吸改成 3px / 3s ease-in-out 循环，只动 transform（原 2% / 4.2s 已替换）')
+    assert(ffCssSrc.includes('@keyframes ff-msg-pop') && ffCssSrc.includes('.ff-msg-pop')
+      && /scale\(0\.9\)[\s\S]{0,120}scale\(1\.05\)[\s\S]{0,120}scale\(1\)/.test(ffCssSrc)
+      && ffCssSrc.includes('ff-msg-pop 300ms'),
+    '新消息弹性弹出 scale(0.9→1.05→1) / 300ms，且只作用于内层气泡')
+    assert(ffCssSrc.includes('@keyframes ff-think-bubble') && ffCssSrc.includes('.ff-think-bubble')
+      && ffCssSrc.includes('--ff-bubble-drift'),
+    '思考吐泡泡：CSS keyframes 上浮 + 漂移变量，纯 transform/opacity')
+    assert(ffCssSrc.includes('@keyframes ff-tired-jitter')
+      && ffCssSrc.includes('.dp-state-thinking.ff-motion-float .dp-body'),
+    '工作大肥鱼思考时疲惫细碎抖动（叠加在 float 人设上）')
+    assert(ffCssSrc.includes('@keyframes ff-food-drop') && ffCssSrc.includes('.ff-food-drop')
+      && ffCssSrc.includes('@keyframes ff-sparkle') && ffCssSrc.includes('.ff-sparkle'),
+    '吃饭掉饭粒 / 青春闪星星两套彩蛋都是独立 keyframes')
+    assert(ffPageSrc.includes('active:scale-90') && ffPageSrc.includes('ff-msg-pop')
+      && ffPageSrc.includes("character.id === 'salaryman'") && ffPageSrc.includes("character.id === 'loli'")
+      && ffPageSrc.includes('ff-food-drop') && ffPageSrc.includes('ff-sparkle'),
+    '角色卡 active:scale-90 点击回弹；消息气泡按角色挂彩蛋，逻辑仍在 FreeTalk 页面层')
+    assert(ffPetSrc.includes('ff-think-bubble') && ffPetSrc.includes('ff-work-coffee')
+      && ffPetSrc.includes('character.id === \'onee\'') && ffPetSrc.includes('🥱') && ffPetSrc.includes('☕'),
+    'DesktopPet 思考态渲染泡泡，工作鱼替换成 ☕ + 🥱 两颗疲惫气泡')
+    assert(/i === messages\.length - 1 && character\.id === 'salaryman'[\s\S]{0,220}ff-food-drop/.test(ffPageSrc)
+      && /i === messages\.length - 1 && character\.id === 'loli'[\s\S]{0,220}ff-sparkle/.test(ffPageSrc),
+    '角色彩蛋只挂最后一条消息：长会话不会累积 2N 个无限动画节点')
+    assert(ffCssSrc.includes('.ff-msg-pop {') && /ff-msg-pop[\s\S]{0,200}animation: none/.test(ffCssSrc)
+      && /ff-think-bubble,[\s\S]{0,160}opacity: 0/.test(ffCssSrc),
+    '全部新增动效在 prefers-reduced-motion 下关闭：弹性回归静态、装饰粒子隐藏')
 
     /* ---------- 前端：结束并总结 + XP ---------- */
     assert(ffPageSrc.includes('结束并总结') && ffPageSrc.includes('summarizeFreeTalk')
@@ -6423,10 +6480,10 @@ window.__mountLab = (el, entry) => {
           messages: [{ role: 'user', content: 'fancy some tea?' }] },
       })
       const ftSystem2 = JSON.parse(ftUpstreamBody).messages[0].content
-      assert(ftSystem2.includes('御姐大肥鱼') && ftSystem2.includes('Darling')
+      assert(ftSystem2.includes('工作大肥鱼') && ftSystem2.includes('Circle back')
         && ftSystem2.includes('英式英语（en-GB）') && ftSystem2.includes('cheers mate')
-        && ftSystem2.includes('下午茶'),
-      '运行时：换角色换口音后 Prompt 整体替换（御姐 + 英音 + 下午茶）')
+        && ftSystem2.includes('action item'),
+      '运行时：换角色换口音后 Prompt 整体替换（工作大肥鱼 + 英音 + 职场黑话）')
 
       /* 总结模式：严格 JSON */
       const ftSum = await FT.invokeFreetalk({
@@ -6626,14 +6683,14 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
         && petBtn.getAttribute('data-motion') === 'bounce'
         && !!document.querySelector('[data-testid="desktop-pet-dock"]'),
       '运行时：输入台旁出现电子宠物，初始为 idle 且继承精灵的 bounce 人设动作')
-      /* 切到御姐：口音应自动跟到该角色的默认英音 */
+      /* 切到工作大肥鱼：口音应自动跟到该角色的默认英音 */
       const oneeBtn = document.querySelector('[data-testid="freetalk-character-onee"]')
-      assert(!!oneeBtn, '御姐大肥鱼可切换')
+      assert(!!oneeBtn, '工作大肥鱼可切换')
       fire(oneeBtn)
       await tick(120)
       const gbAccent = document.querySelector('[data-testid="freetalk-accent-en-GB"]')
       assert(!!gbAccent && gbAccent.getAttribute('aria-pressed') === 'true',
-        '切换到御姐后，口音自动跟到她的默认英音 en-GB')
+        '切换到工作大肥鱼后，口音自动跟到默认英音 en-GB')
 
       /* [语音输入] 完整链路：点麦克风 → 假识别器出字 → 文字进输入框但不自动发送 */
       const micBtn = document.querySelector('[data-testid="freetalk-mic"]')
@@ -6659,7 +6716,7 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
       }
       const bubblesBeforeDictate = document.querySelectorAll('[data-testid="freetalk-page"] .animate-in').length
       globalThis.window.SpeechRecognition = FishRecognition
-      /* 切御姐触发过重渲染，重新查询按钮，避免 fire 到过期 DOM 节点 */
+      /* 切工作大肥鱼触发过重渲染，重新查询按钮，避免 fire 到过期 DOM 节点 */
       fire(document.querySelector('[data-testid="freetalk-mic"]'))
       await tick(25)
       assert(!!document.querySelector('[data-testid="freetalk-dictation-interim"]'),
@@ -6680,7 +6737,7 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
       assert(document.querySelectorAll('[data-testid="freetalk-page"] .animate-in').length === bubblesBeforeDictate,
         '识别文字只进输入框、不自动发送（消息气泡数未增加）')
       assert(FishRecognition.lastLang === 'en-GB',
-        '识别器口音跟随当前口音档位（御姐 en-GB，不是默认 en-US）')
+        '识别器口音跟随当前口音档位（工作大肥鱼 en-GB，不是默认 en-US）')
       delete globalThis.window.SpeechRecognition
 
       /* [Android 降级] 识别器静默 onend 无结果 → 本地录音 → WAV → 内置 ASR → 文字进输入框 */
@@ -6806,7 +6863,7 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
       fire(sendBtn)
       await tick(900)
       assert(bodyText().includes('hello fat fish'), '用户发言出现在气泡里')
-      assert(/Cool!|Actually|Darling|Wow~|Yo!|G'day/.test(bodyText()),
+      assert(/Cool!|Awesome!|Circle back|Nom nom!|Dig in!|Yo!|G'day/.test(bodyText()),
         '上游不可用时本地演示大肥鱼顶上，且用的是该角色的语气词')
       assert(!!document.querySelector('[data-testid="freetalk-error-card"]'),
         '上游失败同时给出友好错误卡（练习不中断）')
@@ -6895,9 +6952,183 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     }
   }
 
+  /* ============ 大文本存储迁移：IndexedDB 索引/正文分离（纯函数 + 降级端到端） ============ */
+  const bigDbMod = await loadModule('src/lib/db.ts', 'bigdb')
+  const bigTextMod = await loadModule('src/lib/bigText.ts', 'bigtext')
+  const bigStoreMod = await loadModule('src/lib/storage.ts', 'bigstore')
+
+  assert(bigDbMod.DB_NAME === 'lingua_buddy_store' && bigDbMod.DB_VERSION === 1
+    && bigDbMod.STORE_BOOKS === 'library_books' && bigDbMod.STORE_MEDIA === 'culture_media',
+  'IndexedDB 双表建立：library_books（书全文）/ culture_media（文化长文）')
+
+  const mem = bigDbMod.createMemoryBackend()
+  const bookProbe = { id: 'probe-book', chapters: [{ paragraphs: ['hello world'] }] }
+  const mediaProbe = { id: 'probe-video', segments: [{ id: 's1' }] }
+  const probePut = (await mem.putBook(bookProbe)) && (await mem.putMedia(mediaProbe))
+  const bookBack = await mem.getBook('probe-book')
+  const mediaBack = await mem.getMedia('probe-video')
+  assert(probePut && bookBack && bookBack.id === 'probe-book'
+    && mediaBack && mediaBack.id === 'probe-video'
+    && (await mem.listBooks()).length === 1 && (await mem.listMedias()).length === 1,
+  'IndexedDB 后端 put / get / list 往返：书与媒体按 id 取回')
+  await mem.clear()
+  assert((await mem.listBooks()).length === 0 && (await mem.listMedias()).length === 0,
+  'IndexedDB 后端 clear 清空两张表（清空数据入口可复用）')
+
+  const fullProbe = litBooks[0]
+  const stubProbe = bigTextMod.toBookStub(fullProbe)
+  const fullSize = JSON.stringify(fullProbe).length
+  const stubSize = JSON.stringify(stubProbe).length
+  assert(stubProbe.id === fullProbe.id && stubProbe.title === fullProbe.title
+    && stubProbe.chapters.length === fullProbe.chapters.length
+    && stubProbe.chapters.every((c) => c.paragraphs.length === 0 && c.wordCount > 0 && !!c.cefr),
+  '书索引清空正文，但字数 / CEFR / 章节数等派生指标逐项保留（列表页不失真）')
+  assert(stubSize * 3 < fullSize,
+  `书索引 ${stubSize}B 小于全量 ${fullSize}B 的 1/3（实测瘦身生效）`)
+  assert(bigTextMod.isHeavyBook(fullProbe) && !bigTextMod.isHeavyBook(stubProbe),
+  'isHeavyBook 区分全量与索引形态（迁移幂等的判定依据）')
+
+  const fullVideoProbe = cultureVideos[0]
+  const stubVideoProbe = bigTextMod.toVideoStub(fullVideoProbe)
+  assert(stubVideoProbe.id === fullVideoProbe.id
+    && stubVideoProbe.segments.length === 0 && stubVideoProbe.seedExpressions.length === 0
+    && stubVideoProbe.segmentCount === fullVideoProbe.segments.length
+    && stubVideoProbe.expressionCount === fullVideoProbe.seedExpressions.length
+    && bigTextMod.isHeavyVideo(fullVideoProbe) && !bigTextMod.isHeavyVideo(stubVideoProbe),
+  '视频索引清空内容素材，但段数 / 短引用数保留（卡片显示不变）')
+
+  const mergedLibProbe = bigTextMod.mergeLibraryState(
+    { seedVersion: 1, books: [fullProbe], briefs: {} },
+    { seedVersion: 1, books: [stubProbe], briefs: {} },
+  )
+  assert(mergedLibProbe.books[0].chapters[0].paragraphs.length > 0,
+  '合并优先级：内置书以 bundle 全量为准，不被 localStorage 索引覆盖')
+
+  const legacyLibraryRaw = JSON.stringify({ seedVersion: 1, books: [fullProbe], briefs: {} })
+  const legacyCultureRaw = JSON.stringify({ seedVersion: 1, videos: [fullVideoProbe] })
+  const plan1 = bigTextMod.planBigTextMigration(legacyLibraryRaw, legacyCultureRaw)
+  const plan2 = bigTextMod.planBigTextMigration(plan1.libraryRaw, plan1.cultureRaw)
+  assert(plan1.changed && plan1.booksToStore.length === 1 && plan1.videosToStore.length === 1
+    && !plan2.changed && plan2.booksToStore.length === 0 && plan2.videosToStore.length === 0,
+  '迁移计划幂等：首次产出正文 + 索引，二次对索引形态空跑')
+
+  /* 端到端：隔离 jsdom 注入内存后端，模拟老用户升级（localStorage 里还是全量正文） */
+  const domBig = new JSDOM('', { url: 'http://localhost:5173/' })
+  const wBig = domBig.window
+  wBig.localStorage.setItem('lingua_library', legacyLibraryRaw)
+  wBig.localStorage.setItem('lingua_culture_videos', legacyCultureRaw)
+  const savedWindowBig = globalThis.window
+  globalThis.window = wBig
+  try {
+    const e2eBackend = bigDbMod.createMemoryBackend()
+    bigStoreMod.setBigTextBackend(e2eBackend)
+    const report = await bigStoreMod.migrateBigTextStorage()
+    const storedLibrary = JSON.parse(wBig.localStorage.getItem('lingua_library'))
+    const storedCulture = JSON.parse(wBig.localStorage.getItem('lingua_culture_videos'))
+    assert(report.booksMoved === 1 && report.videosMoved === 1
+      && report.librarySlimmed && report.cultureSlimmed
+      && storedLibrary.books.length === 1 && storedCulture.videos.length === 1,
+    '端到端迁移：旧正文搬进 IndexedDB，localStorage 按原长度换成索引')
+    const migratedBook = await e2eBackend.getBook(fullProbe.id)
+    const migratedVideo = await e2eBackend.getMedia(fullVideoProbe.id)
+    assert(migratedBook && migratedBook.chapters[0].paragraphs.length === fullProbe.chapters[0].paragraphs.length
+      && migratedVideo && migratedVideo.segments.length === fullVideoProbe.segments.length,
+    '端到端迁移：IndexedDB 正文与原文逐项一致（零丢失）')
+    const report2 = await bigStoreMod.migrateBigTextStorage()
+    assert(report2.booksMoved === 0 && report2.videosMoved === 0 && !report2.librarySlimmed,
+    '端到端迁移幂等：重复运行不再写库、不再改 localStorage')
+    const slimmed = bigStoreMod.slimForStorage(bigStoreMod.loadData())
+    assert(slimmed.library.books[0].chapters[0].paragraphs.length === 0,
+    'saveData 瘦身分支：内存全量 → 落盘索引')
+  } finally {
+    bigStoreMod.setBigTextBackend(null)
+    globalThis.window = savedWindowBig
+  }
+
+  assert(Object.keys(bigStoreMod.KEYS).length === 31,
+  '大文本迁移后 localStorage 仍是 31 键，未新增 / 删除任何存储键')
+
+  /* ============ [内容扩充] 书架 100+ 书 / 文化 100+ 视频 / 电影演示卡 ============ */
+  const bookCat = await loadModule('src/data/expanded/bookCatalog.ts', 'bookcat')
+  const vidCat = await loadModule('src/data/expanded/cultureCatalog.ts', 'vidcat')
+  const movCat = await loadModule('src/data/expanded/moviesCatalog.ts', 'movcat')
+
+  // 书籍元数据目录
+  assert(bookCat.BOOK_CATALOG.length >= 100,
+    `英语文学公版书目录扩充到 100+ 本（实际 ${bookCat.BOOK_CATALOG.length} 本）`)
+  assert(bookCat.BOOK_CATALOG.every((b) => b.id && b.title && b.titleCn && b.author
+    && b.cefrLevel && Array.isArray(b.tags) && b.tags.length && b.intro.en && b.intro.zh),
+  '每本书含英文原名 / 中文译名 / 作者 / CEFR / 标签 / 中英双语简介')
+  assert(bookCat.BOOK_CATALOG.every((b) => b.sourceUrl.startsWith('https://www.gutenberg.org/ebooks/search/?query=')
+    && b.publicDomainBasis),
+  '每本书的公版来源指向古登堡按书名搜索页（不编造 ebook ID）并有公版依据')
+  assert(new Set(bookCat.BOOK_CATALOG.map((b) => b.id)).size === bookCat.BOOK_CATALOG.length,
+  '目录书 id 无重复')
+  assert(bookCat.CATALOG_TAGS.length >= 10 && Object.values(bookCat.CATALOG_CEFR_COUNTS).some((n) => n > 0),
+  '目录导出筛选标签与 CEFR 分布，供 UI 生成筛选器')
+
+  // 文化扩展视频：合规降级铁律
+  assert(vidCat.EXPANDED_VIDEOS.length >= 50,
+    `合规扩展视频扩充到 50+ 条（实际 ${vidCat.EXPANDED_VIDEOS.length} 条）`)
+  assert(vidCat.EXPANDED_VIDEOS.every((v) => v.videoId === '' && v.idStatus === 'playlist-only'
+    && v.embeddable === false),
+  '扩展视频一律 videoId 留空 + playlist-only + 不可嵌入，绝不编造 ID')
+  assert(vidCat.EXPANDED_VIDEOS.every((v) => (v.officialUrl || '').startsWith('https://www.youtube.com/playlist?list=')
+    && v.watchUrl && v.attribution && v.licenseNote && v.summaryZh),
+  '扩展视频只挂已验证官方播放列表，且来源 / 许可 / 署名 / 梗概齐全')
+  assert(50 + vidCat.EXPANDED_VIDEOS.length >= 100,
+    `文化板块视频总量达到 100+（50 种子 + ${vidCat.EXPANDED_VIDEOS.length} 扩展）`)
+
+  // 电影：JSON 数据源 + 官方预告降级 + 正版平台跳转
+  assert(movCat.MOVIE_CATALOG.length >= 10,
+    `电影 JSON 收录豆瓣高分经典 10+ 部（实际 ${movCat.MOVIE_CATALOG.length} 部）`)
+  assert(movCat.MOVIE_CATALOG.every((m) => m.doubanRating >= 8 && m.year > 1900
+    && m.titleCn && m.title && m.intro && m.intro.zh && m.intro.en && m.posterUrl),
+  '每部电影含真实公开评分 / 年份 / 中英片名 / 中英双语简介 / 本地海报')
+  assert(movCat.MOVIE_CATALOG.every((m) => m.embedUrl === '' && movCat.hasOfficialTrailer(m) === false),
+  'embedUrl 一律留空触发海报降级，不渲染空 iframe / 不编造 BV 号')
+  assert(movCat.MOVIE_CATALOG.every((m) => movCat.isLegitWatchUrl(m.watchUrl) && m.watchPlatform),
+  'watchUrl 指向合法正版平台域名（bilibili/iqiyi/qq/1905），watchPlatform 用于按钮文案')
+  assert(!movCat.MOVIE_CATALOG.some((m) => /网盘|pan\.baidu|magnet:|\.torrent|盗版/.test(m.watchUrl + m.intro.zh + m.intro.en))
+    && movCat.MOVIES_BY_RATING[0].doubanRating >= movCat.MOVIES_BY_RATING[movCat.MOVIES_BY_RATING.length - 1].doubanRating,
+  '电影数据无网盘/盗版链接，且提供按豆瓣评分降序的视图')
+
+  // 页面接线：动态 import + 筛选分页 + 电影 Tab + 不动存储键
+  const libSrc = fs.readFileSync(path.join(root, 'src/pages/Library.tsx'), 'utf8')
+  const culSrc = fs.readFileSync(path.join(root, 'src/pages/CultureHub.tsx'), 'utf8')
+  const catBits = fs.readFileSync(path.join(root, 'src/components/CatalogBits.tsx'), 'utf8')
+  assert(libSrc.includes("import('../data/expanded/bookCatalog')") && libSrc.includes('data-testid="book-catalog"'),
+  '书架页用动态 import 按需加载书目录，并提供可定位的目录区')
+  assert(libSrc.includes('<CatalogFilter') && libSrc.includes('<CatalogPager') && libSrc.includes('CATALOG_PAGE_SIZE = 20'),
+  '书架页接入难度 / 主题筛选与每页 20 本的分页')
+  assert(culSrc.includes("import('../data/expanded/cultureCatalog')")
+    && culSrc.includes("import('../data/expanded/moviesCatalog')"),
+  '文化页用动态 import 按需加载扩展视频与电影目录')
+  assert(/FEED_TABS[\s\S]{0,500}id: 'movie'[\s\S]{0,80}label: '电影'/.test(culSrc)
+    && culSrc.includes('data-testid="culture-movie-list"'),
+  '文化页新增「电影」Tab 且有独立演示卡列表')
+  const modalSrc = fs.readFileSync(path.join(root, 'src/components/MoviePlayerModal.tsx'), 'utf8')
+  const movieJson = JSON.parse(fs.readFileSync(path.join(root, 'src/data/culture-movies.json'), 'utf8'))
+  assert(culSrc.includes('tab !== \'movie\' && expandedVideos.length')
+    && culSrc.includes('<MoviePlayerModal') && modalSrc.includes('data-testid="movie-player-modal"'),
+  '扩展视频独立于原信息流，电影卡接入详情/播放弹窗')
+  assert(movieJson.length >= 10 && modalSrc.includes('aspect-video')
+    && modalSrc.includes('去【{movie.watchPlatform}】看全片')
+    && modalSrc.includes('target="_blank" rel="noopener noreferrer"')
+    && modalSrc.includes('受版权保护，请点击下方按钮去官方平台观看预告/全片')
+    && modalSrc.includes('role="dialog"') && modalSrc.includes('aria-modal="true"'),
+  '电影 JSON 10+ 部，Modal 含 aspect-video / 正版跳转按钮 / 版权降级提示 / 无障碍属性')
+  assert(modalSrc.includes("hasOfficialTrailer(movie)") && modalSrc.includes("'failed'")
+    && modalSrc.includes('8000') && !/<iframe[^>]*src=\{movie\.embedUrl\}/.test(modalSrc.split('state === \'gate\'')[0] || ''),
+  'embedUrl 为空不渲染 iframe；有嵌入时点击加载 + 8s 超时/报错降级为海报')
+  const expandedSrc = ['bookCatalog.ts', 'cultureCatalog.ts', 'moviesCatalog.ts']
+    .map((f) => stripComments(fs.readFileSync(path.join(root, 'src/data/expanded', f), 'utf8'))).join('\n')
+  assert(!/localStorage\.|setItem\(|\.setItem|KEYS\./.test(expandedSrc),
+  '三个扩展目录纯静态数据，不读写任何 localStorage 键')
+
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏）/ 大文本存储迁移（IndexedDB 双表·索引/正文分离·字数与 CEFR 派生指标保留·迁移幂等·端到端零丢失·31 键契约不变）/ 内容扩充（书架 129 本公版书元数据·难度/主题筛选·每页 20 分页·古登堡搜索不编 ID / 文化 50+55=105 条合规视频·playlist-only 零编造 / 电影 10 部 JSON·官方预告合法嵌入+正版平台跳转看全片·embedUrl 留空降级海报·8s超时防白屏·watchUrl 合法域名·无盗版无网盘·动态 import 不进 31 键） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

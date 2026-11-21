@@ -29,7 +29,7 @@ export function ProvinceConfig() {
           return (
             <button key={p.id} type="button" onClick={() => setProvince(app, p.id)}
               data-testid={`province-${p.id}`}
-              className={`rounded-xl px-2.5 py-2 text-[11px] font-bold transition ${selected
+              className={`seg-btn rounded-xl px-2.5 py-2 text-[11px] font-bold transition ${selected
                 ? 'bg-brand-500 text-white shadow-soft'
                 : 'bg-slate-100 text-muted hover:bg-brand-50 hover:text-brand-600'}`}>
               {p.label}

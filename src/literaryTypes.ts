@@ -62,6 +62,15 @@ export interface LiteraryChapter {
   /** 2-3 句中文摘要（Mock 分析器的素材，均来自本章节选） */
   summaryZh: string
   historicalContext?: string
+  /**
+   * [大数据迁移] 索引形态的派生指标。
+   * 正文迁往 IndexedDB 后，localStorage 只留一条轻量索引，
+   * 列表页仍要显示「本章字数 / CEFR 估计 / 段落数」，
+   * 所以这三个派生值在生成索引时就算好带过来，绝不让列表页退化成 0 字。
+   */
+  wordCount?: number
+  paragraphCount?: number
+  cefr?: CefrLevel
 }
 
 export interface LiteraryBook {

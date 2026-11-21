@@ -39,7 +39,7 @@ export function LevelUpBanner({ enabled }: { enabled: boolean }) {
   if (!enabled || !banner) return null
   return (
     <div data-testid="levelup-banner" role="status"
-      className="pointer-events-none fixed left-1/2 top-3 z-[58] w-[min(92vw,460px)] -translate-x-1/2 animate-in">
+      className="pointer-events-none fixed left-1/2 top-3 z-[58] w-[min(92vw,460px)] -translate-x-1/2 animate-in-centered">
       <div className="flex items-center gap-3 rounded-2xl border border-white/80 bg-gradient-to-r from-brand-500 to-brand-700 px-4 py-3 text-white shadow-float">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 text-lg">🏅</span>
         <div className="min-w-0">
