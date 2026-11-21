@@ -288,12 +288,12 @@ export function CultureHub() {
         </Card>
       </section>
 
-      {/* ---------- 3a. [内容扩充] 电影 Tab：官方预告 + 正版平台跳转看全片 ---------- */}
+      {/* ---------- 3a. [内容扩充] 电影 Tab：只提供官方预告片，应用内直接播放 ---------- */}
       {tab === 'movie' && (
         <section data-testid="culture-movie-list" className="space-y-2.5">
           <div className="cf-feed-block rounded-2xl border border-sun-100 bg-sun-100/40 px-3.5 py-2.5 text-[11px] leading-relaxed text-[#8a5b08]">
-            🎬 采用「<strong>官方预告片合法嵌入 + 正版平台跳转看全片</strong>」策略：预告如受防盗链限制会自动降级为海报，
-            看全片请点弹窗底部按钮前往 B站 / 爱奇艺 / 腾讯视频 / 1905电影网。不含任何片源或盗版链接。
+            🎬 本板块<strong>只提供官方预告片</strong>，点击卡片即可在应用内直接播放；如受网络或防盗链限制，
+            会自动降级为海报并提供「去官方平台观看预告」入口。不含任何全片片源或盗版链接。
           </div>
           {movies.length === 0 ? (
             <EmptyState emblem="🎬" title="电影目录加载中" desc="稍等片刻；不影响其他栏目使用。" />

@@ -10,9 +10,7 @@
       "en": "A banker, wrongly convicted, spends nearly twenty years turning patience and hope into freedom."
     },
     "posterUrl": "/posters/shawshenk.svg",
-    "embedUrl": "",
-    "watchUrl": "https://search.bilibili.com/all?keyword=%E8%82%96%E7%94%B3%E5%85%8B%E7%9A%84%E6%95%91%E8%B5%8E",
-    "watchPlatform": "B站"
+    "trailerUrl": "https://player.bilibili.com/player.html?bvid=BV1hZuQ6oE88&page=1&high_quality=1&danmaku=0"
   },
   {
     "id": "forrestgump",
@@ -25,9 +23,7 @@
       "en": "A simple man runs through half a century of American history, seeing more than he ever sought."
     },
     "posterUrl": "/posters/forrestgump.svg",
-    "embedUrl": "",
-    "watchUrl": "https://so.iqiyi.com/so/q_%E9%98%BF%E7%94%98%E6%AD%A3%E4%BC%A0",
-    "watchPlatform": "爱奇艺"
+    "trailerUrl": ""
   },
   {
     "id": "titanic",
@@ -40,9 +36,7 @@
       "en": "A brief meeting at the bow of a great ship becomes a lifelong promise amid catastrophe."
     },
     "posterUrl": "/posters/titanic.svg",
-    "embedUrl": "",
-    "watchUrl": "https://v.qq.com/x/search/?q=%E6%B3%B0%E5%9D%A6%E5%B0%BC%E5%85%8B%E5%8F%B7",
-    "watchPlatform": "腾讯视频"
+    "trailerUrl": ""
   },
   {
     "id": "inception",
@@ -55,9 +49,7 @@
       "en": "A thief who steals secrets from dreams takes one last job, and the layers of reality begin to blur."
     },
     "posterUrl": "/posters/inception.svg",
-    "embedUrl": "",
-    "watchUrl": "https://search.bilibili.com/all?keyword=%E7%9B%97%E6%A2%A6%E7%A9%BA%E9%97%B4",
-    "watchPlatform": "B站"
+    "trailerUrl": ""
   },
   {
     "id": "interstellar",
@@ -70,9 +62,7 @@
       "en": "A father travels through a wormhole to find humanity a new home, while time stretches his bond with his daughter."
     },
     "posterUrl": "/posters/interstellar.svg",
-    "embedUrl": "",
-    "watchUrl": "https://so.iqiyi.com/so/q_%E6%98%9F%E9%99%85%E7%A9%BF%E8%B6%8A",
-    "watchPlatform": "爱奇艺"
+    "trailerUrl": ""
   },
   {
     "id": "truman",
@@ -85,9 +75,7 @@
       "en": "A man discovers his whole life is a television show, and walks toward the edge of his painted sky."
     },
     "posterUrl": "/posters/truman.svg",
-    "embedUrl": "",
-    "watchUrl": "https://www.1905.com/search.php?keyword=%E6%A5%9A%E9%97%A8%E7%9A%84%E4%B8%96%E7%95%8C",
-    "watchPlatform": "1905电影网"
+    "trailerUrl": ""
   },
   {
     "id": "godfather",
@@ -100,9 +88,7 @@
       "en": "A crime family passes power from father to son, at the cost of loyalty, love, and innocence."
     },
     "posterUrl": "/posters/godfather.svg",
-    "embedUrl": "",
-    "watchUrl": "https://v.qq.com/x/search/?q=%E6%95%99%E7%88%B6",
-    "watchPlatform": "腾讯视频"
+    "trailerUrl": ""
   },
   {
     "id": "pursuit",
@@ -115,9 +101,7 @@
       "en": "A struggling salesman and his son endure homelessness until persistence opens the door to a better life."
     },
     "posterUrl": "/posters/pursuit.svg",
-    "embedUrl": "",
-    "watchUrl": "https://search.bilibili.com/all?keyword=%E5%BD%93%E5%B9%B8%E7%A6%8F%E6%9D%A5%E6%95%B2%E9%97%A8",
-    "watchPlatform": "B站"
+    "trailerUrl": ""
   },
   {
     "id": "zootopia",
@@ -130,9 +114,7 @@
       "en": "A rabbit officer and a fox con artist team up to solve a case, learning to see past their stereotypes."
     },
     "posterUrl": "/posters/zootopia.svg",
-    "embedUrl": "",
-    "watchUrl": "https://so.iqiyi.com/so/q_%E7%96%AF%E7%8B%82%E5%8A%A8%E7%89%A9%E5%9F%8E",
-    "watchPlatform": "爱奇艺"
+    "trailerUrl": "https://player.bilibili.com/player.html?bvid=BV1PVhwz3EA7&page=1&high_quality=1&danmaku=0"
   },
   {
     "id": "coco",
@@ -145,8 +127,6 @@
       "en": "A boy who loves music wanders into the Land of the Dead and discovers the story behind his family."
     },
     "posterUrl": "/posters/coco.svg",
-    "embedUrl": "",
-    "watchUrl": "https://v.qq.com/x/search/?q=%E5%AF%BB%E6%A2%A6%E7%8E%AF%E6%B8%B8%E8%AE%B0",
-    "watchPlatform": "腾讯视频"
+    "trailerUrl": ""
   }
 ]

@@ -7,8 +7,8 @@
  * 交互约定：
  *  - 书籍元数据卡没有全文，不进 Reader（避免 getChapter 找不到）；
  *    点击展开内联详情，给出「到古登堡计划查看」官方外链。
- *  - 电影卡为演示数据：只给官方预告片搜索外链，绝不渲染 iframe 播放器，
- *    且必须显示「演示数据 · 官方预告」标注。
+ *  - 电影卡只提供官方预告片：封面叠加播放图标 + 显眼「播放预告片」入口，
+ *    点击由父组件弹出 MoviePlayerModal 在应用内播放，不做任何全片跳转。
  * ================================================================ */
 
 import { useState } from 'react'
@@ -61,14 +61,20 @@ export function CatalogBookCard({ entry }: { entry: BookCatalogEntry }) {
   )
 }
 
-/* ---------------- 电影卡（点击打开播放 / 详情弹窗） ---------------- */
+/* ---------------- 电影卡（点击应用内播放官方预告片） ---------------- */
 
 export function MovieCard({ movie, onOpen }: { movie: MovieEntry; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} aria-label={`查看 ${movie.titleCn} 详情`}
+    <button type="button" onClick={onOpen} aria-label={`播放 ${movie.titleCn} 预告片`}
+      data-testid="movie-card"
       className="card flex w-full items-start gap-3.5 p-4 text-left transition hover:border-brand-300">
-      <img src={movie.posterUrl} alt={`${movie.titleCn} 海报`} loading="lazy"
-        className="h-24 w-16 shrink-0 rounded-xl object-cover shadow-soft" />
+      <span className="relative h-24 w-16 shrink-0 overflow-hidden rounded-xl shadow-soft">
+        <img src={movie.posterUrl} alt={`${movie.titleCn} 海报`} loading="lazy"
+          className="h-full w-full object-cover" />
+        <span className="absolute inset-0 flex items-center justify-center bg-ink/30">
+          <Icon name="play" size={20} className="text-white" />
+        </span>
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <p className="truncate text-sm font-bold text-ink">{movie.titleCn}</p>
@@ -77,8 +83,11 @@ export function MovieCard({ movie, onOpen }: { movie: MovieEntry; onOpen: () => 
         <p className="en-text mt-0.5 truncate text-[11px] text-muted">{movie.title} · {movie.year}</p>
         <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted">{movie.intro.zh}</p>
         <div className="mt-2 flex items-center gap-1.5">
-          <Chip tone="coral" className="!px-2 !py-0.5 !text-[10px]">官方预告 · 正版跳转</Chip>
-          <span className="text-[10px] font-semibold text-brand-600">{movie.watchPlatform}</span>
+          <span data-testid="movie-play-trailer"
+            className="inline-flex items-center gap-1 rounded-lg bg-brand-500 px-2.5 py-1 text-[11px] font-bold text-white">
+            <Icon name="play" size={12} /> 播放预告片
+          </span>
+          <Chip tone="coral" className="!px-2 !py-0.5 !text-[10px]">官方预告 · 应用内播放</Chip>
         </div>
       </div>
       <Icon name="right" size={16} className="mt-1 shrink-0 text-muted" />

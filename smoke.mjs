@@ -741,6 +741,50 @@ try {
 
   assert(bodyText().includes('把一段英文'), '首页渲染成功')
   assert(bodyText().includes('当前目标 IELTS'), '首页显示当前雅思目标档位')
+
+  /* ---- [首页场景库] 运行时：默认收纳 + 两个文字按钮 + Tab 分类 + 零拦截进入对话 ---- */
+  assert(!!document.querySelector('[data-testid="home-freetalk-entry"]')
+    && !!document.querySelector('[data-testid="home-browse-scenes-entry"]')
+    && !!document.querySelector('[data-testid="scene-library"]'),
+  '运行时：首页出现大肥鱼 / 浏览全部场景两个文字按钮与场景库区')
+  const sceneWrap = document.querySelector('[data-testid="scene-library-wrap"]')
+  assert(!!sceneWrap && sceneWrap.classList.contains('cf-drawer-closed')
+    && !sceneWrap.classList.contains('cf-drawer-open')
+    && sceneWrap.querySelector('[data-testid="scene-library"]'),
+  '运行时：场景库默认折叠收纳（DOM 保留），点击前不占首屏视觉')
+  // 点「浏览全部场景」展开，再点「收起场景库」折回
+  fire(document.querySelector('[data-testid="home-browse-scenes-entry"]'))
+  await tick(90)
+  assert(sceneWrap.classList.contains('cf-drawer-open')
+    && !!document.querySelector('[data-testid="scene-library-collapse"]'),
+  '运行时：点击「浏览全部场景」展开场景库并出现收起按钮')
+  fire(document.querySelector('[data-testid="scene-library-collapse"]'))
+  await tick(90)
+  assert(sceneWrap.classList.contains('cf-drawer-closed'),
+    '运行时：点「收起场景库」重新折叠，纯会话态不落 localStorage')
+  // 重新展开，供后续 Tab 分类断言继续在可见态检查
+  fire(document.querySelector('[data-testid="home-browse-scenes-entry"]'))
+  await tick(90)
+  assert(sceneWrap.classList.contains('cf-drawer-open'), '运行时：再次展开供后续分类断言使用')
+  assert(['all', 'beginner', 'intermediate', 'advanced'].every(
+    (b) => !!document.querySelector(`[data-testid="scene-band-${b}"]`)),
+  '运行时：场景库有全部 / 初级 / 中级 / 高级 4 个等级 Tab')
+  assert(document.querySelectorAll('[data-testid^="scene-life-"]').length === 10
+    && document.querySelectorAll('[data-testid^="scene-travel-"]').length === 10,
+  '运行时：默认「全部」Tab 渲染生活 / 旅行等全量场景')
+  // 切到「高级 (C1+)」Tab：即使当前是 B1，也照样列出 C1 场景且不弹窗
+  fire(document.querySelector('[data-testid="scene-band-advanced"]'))
+  await tick(60)
+  assert(document.querySelectorAll('[data-testid^="scene-life-"]').length === 2
+    && document.querySelectorAll('[data-testid^="scene-work-"]').length === 3
+    && !document.querySelector('[data-testid="scene-life-01"]'),
+  '运行时：高级 Tab 只显示 C1 场景，等级分类生效（无弹窗拦截）')
+  // 切回「全部」，保持首页初始状态，不污染后续文本分析链路的 localStorage 快照
+  fire(document.querySelector('[data-testid="scene-band-all"]'))
+  await tick(60)
+  assert(document.querySelectorAll('[data-testid^="scene-life-"]').length === 10,
+    '运行时：切回「全部」Tab 恢复 40 个场景')
+
   click(/Try an example/, '加载示例文本')
   await tick(100)
   const ta = w.document.querySelector('textarea')
@@ -6639,6 +6683,17 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     {
       clickExact('学习', '回到学习页')
       await tick(200)
+
+      /* [首页场景库] 运行时零拦截：任意等级点 C1 场景直接进入对话 */
+      const c1Scene = document.querySelector('[data-testid="scene-work-08"]')
+      assert(!!c1Scene, '运行时：首页场景库渲染出 C1 场景卡')
+      fire(c1Scene)
+      await tick(220)
+      assert(bodyText().includes('本场目标') && /\d+\/\d+ 轮/.test(bodyText()),
+        '运行时：点击 C1 场景直接进入对话页（零等级拦截，无弹窗报错）')
+      clickExact('学习', '从场景对话回到学习页')
+      await tick(180)
+
       /* [移动端登录入口] 真渲染首页：横幅必须可见、可点开登录弹窗 */
       const syncBanner = document.querySelector('[data-testid="sync-banner"]')
         ?? document.querySelector('[data-testid="sync-banner-unconfigured"]')
@@ -7048,6 +7103,77 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
   assert(Object.keys(bigStoreMod.KEYS).length === 31,
   '大文本迁移后 localStorage 仍是 31 键，未新增 / 删除任何存储键')
 
+  /* ============ [首页场景库] 40 场景 / 等级分类 / 零拦截直接进入对话 ============ */
+  const sceneLib = await loadModule('src/data/sceneLibrary.ts', 'scenelib')
+  const homeSceneSrc = fs.readFileSync(path.join(root, 'src/pages/Home.tsx'), 'utf8')
+  const sceneCompSrc = fs.readFileSync(path.join(root, 'src/components/SceneLibrary.tsx'), 'utf8')
+
+  // 数据层：40 个原创场景，四大类齐全，level 标签合法，字段完整
+  assert(sceneLib.SCENE_LIBRARY.length >= 30 && sceneLib.SCENE_LIBRARY.length <= 50,
+    `首页场景库扩充到 30-50 个（实际 ${sceneLib.SCENE_LIBRARY.length} 个）`)
+  assert(['life', 'work', 'academic', 'travel'].every((c) =>
+    sceneLib.SCENE_LIBRARY.filter((s) => s.category === c).length >= 8),
+  '场景覆盖生活 / 职场 / 学术 / 旅行四大类，每类至少 8 个')
+  assert(sceneLib.SCENE_LIBRARY.every((s) => s.id && s.title && s.titleEn && s.desc
+    && s.emblem && ['A2', 'B1', 'B2', 'C1'].includes(s.level)
+    && Array.isArray(s.targetWords) && s.targetWords.length >= 3 && s.openingLine),
+  '每个场景含中英名称 / 简述 / 图标 / level 标签 / 重点词 / 英文开场白')
+  assert(new Set(sceneLib.SCENE_LIBRARY.map((s) => s.id)).size === sceneLib.SCENE_LIBRARY.length,
+  '场景 id 唯一，不重复')
+
+  // 纯函数：等级 Tab 分类正确；挑战模式只是提示
+  assert(sceneLib.filterScenesByBand(sceneLib.SCENE_LIBRARY, 'all').length === sceneLib.SCENE_LIBRARY.length
+    && sceneLib.SCENE_LIBRARY.every((s) =>
+      sceneLib.filterScenesByBand([s], sceneLib.sceneBandOf(s.level)).length === 1),
+  'filterScenesByBand 按 A2-B1 / B2 / C1+ 正确分类，all 返回全部')
+  assert(sceneLib.isChallenge('B1', 'C1') === true && sceneLib.isChallenge('C1', 'B1') === false
+    && sceneLib.isChallenge('B1', 'B1') === false,
+  'isChallenge 只在用户等级低于场景等级时为真（挑战提示，非门槛）')
+  assert(!/localStorage\.|setItem\(|\.setItem/.test(
+    stripComments(fs.readFileSync(path.join(root, 'src/data/sceneLibrary.ts'), 'utf8'))),
+  '场景库是纯静态数据 + 纯函数，不读写任何 localStorage 键')
+
+  // 零拦截：点击场景直接开对话，不因等级弹窗 / 报错 / 禁用
+  const sceneStartFn = sceneCompSrc.match(/function startSceneDialogue[\s\S]*?\n\}/)?.[0] || ''
+  assert(sceneCompSrc.includes('app.navigate(\'dialogue\'')
+    && !/isChallenge[^\n]*&&[^\n]*(return|notify|disabled)/.test(sceneStartFn)
+    && !/(等级不足|低于|不符合|解锁|请先提升|not allowed)/.test(sceneStartFn),
+  '点击任意等级场景直接进入 dialogue，零等级拦截 / 零弹窗报错')
+  assert(sceneCompSrc.includes('role="tablist"') && sceneCompSrc.includes('aria-selected')
+    && sceneCompSrc.includes('border-b-2') && sceneCompSrc.includes('border-brand-500')
+    && sceneCompSrc.includes('挑战模式') && sceneCompSrc.includes('data-testid={`scene-${s.id}`}'),
+  '场景区含下划线高亮 Tab + 紧凑卡片 + 等级 badge + 挑战模式小字')
+
+  // 首页接线：输入框仍是主体，入口升级为胶囊按钮，场景库挂在下方
+  assert(homeSceneSrc.includes('大肥鱼自由对话')
+    && homeSceneSrc.includes('浏览全部场景')
+    && homeSceneSrc.includes('data-testid="home-freetalk-entry"')
+    && homeSceneSrc.includes('data-testid="home-browse-scenes-entry"')
+    && homeSceneSrc.includes("navigate('freeTalk')")
+    && homeSceneSrc.includes('<SceneLibrary />'),
+  '首页输入框下方是「大肥鱼自由对话」「浏览全部场景」两个入口并挂载场景库')
+  assert(homeSceneSrc.includes('sceneRef.current?.scrollIntoView')
+    && homeSceneSrc.indexOf('textarea') < homeSceneSrc.indexOf('<SceneLibrary />'),
+  '「浏览全部场景」可滚动定位到场景区，且输入框仍在场景库之前（首屏主体不变）')
+  assert(/useState\(false\)/.test(homeSceneSrc.match(/scenesOpen[\s\S]{0,60}/)?.[0] || '')
+    && homeSceneSrc.includes('scene-library-wrap')
+    && homeSceneSrc.includes('cf-drawer-closed') && homeSceneSrc.includes('cf-drawer-open')
+    && homeSceneSrc.includes('scene-library-collapse')
+    && !/localStorage/.test(homeSceneSrc.match(/scenesOpen[\s\S]{0,240}/)?.[0] || ''),
+  '场景库默认折叠收纳（cf-drawer + DOM 保留）、可展开/收起，显隐是纯会话态不落 localStorage')
+
+  // 触控与视觉精简：胶囊按钮 ≥44px / 14px 字号；输入框上方只留示例 + 上传两个核心按钮
+  const pillBlock = homeSceneSrc.match(/home-freetalk-entry[\s\S]{0,900}?home-browse-scenes-entry[\s\S]{0,900}?<\/button>/)?.[0] || ''
+  assert(/min-h-\[48px\]/.test(pillBlock) && /rounded-full/.test(pillBlock)
+    && /px-5 py-3/.test(pillBlock) && /text-sm/.test(pillBlock)
+    && /bg-brand-50/.test(pillBlock) && /border-brand-100/.test(pillBlock)
+    && /flex flex-wrap gap-3/.test(homeSceneSrc),
+  '两个入口升级为胶囊按钮：48px 热区 / 14px 字号 / brand 浅底细边框 / 窄屏换行')
+  const upperBlock = homeSceneSrc.match(/<div className="mb-3 flex flex-wrap gap-2">[\s\S]*?<\/div>/)?.[0] || ''
+  assert(/Try an example/.test(upperBlock) && /上传 \.txt \/ \.md/.test(upperBlock)
+    && !/城市旅行|校园项目/.test(upperBlock) && !/!text-xs/.test(upperBlock),
+  '输入框上方只留「填入示例文本 + 上传」两个核心按钮，移除重复示例标签且字号不被压小')
+
   /* ============ [内容扩充] 书架 100+ 书 / 文化 100+ 视频 / 电影演示卡 ============ */
   const bookCat = await loadModule('src/data/expanded/bookCatalog.ts', 'bookcat')
   const vidCat = await loadModule('src/data/expanded/cultureCatalog.ts', 'vidcat')
@@ -7079,19 +7205,26 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
   assert(50 + vidCat.EXPANDED_VIDEOS.length >= 100,
     `文化板块视频总量达到 100+（50 种子 + ${vidCat.EXPANDED_VIDEOS.length} 扩展）`)
 
-  // 电影：JSON 数据源 + 官方预告降级 + 正版平台跳转
+  // 电影：JSON 数据源 + 官方预告片应用内播放 + 空源降级
   assert(movCat.MOVIE_CATALOG.length >= 10,
     `电影 JSON 收录豆瓣高分经典 10+ 部（实际 ${movCat.MOVIE_CATALOG.length} 部）`)
   assert(movCat.MOVIE_CATALOG.every((m) => m.doubanRating >= 8 && m.year > 1900
-    && m.titleCn && m.title && m.intro && m.intro.zh && m.intro.en && m.posterUrl),
-  '每部电影含真实公开评分 / 年份 / 中英片名 / 中英双语简介 / 本地海报')
-  assert(movCat.MOVIE_CATALOG.every((m) => m.embedUrl === '' && movCat.hasOfficialTrailer(m) === false),
-  'embedUrl 一律留空触发海报降级，不渲染空 iframe / 不编造 BV 号')
-  assert(movCat.MOVIE_CATALOG.every((m) => movCat.isLegitWatchUrl(m.watchUrl) && m.watchPlatform),
-  'watchUrl 指向合法正版平台域名（bilibili/iqiyi/qq/1905），watchPlatform 用于按钮文案')
-  assert(!movCat.MOVIE_CATALOG.some((m) => /网盘|pan\.baidu|magnet:|\.torrent|盗版/.test(m.watchUrl + m.intro.zh + m.intro.en))
+    && m.titleCn && m.title && m.intro && m.intro.zh && m.intro.en && m.posterUrl
+    && typeof m.trailerUrl === 'string'),
+  '每部电影含真实公开评分 / 年份 / 中英片名 / 中英双语简介 / 本地海报 / trailerUrl')
+  const movieJsonText = fs.readFileSync(path.join(root, 'src/data/culture-movies.json'), 'utf8')
+  assert(!/"(watchUrl|watchPlatform|embedUrl)"\s*:/.test(movieJsonText),
+  '电影数据已纯净化：彻底移除 watchUrl / watchPlatform / embedUrl 全片跳转字段')
+  const trailerReady = movCat.MOVIE_CATALOG.filter((m) => movCat.hasOfficialTrailer(m))
+  assert(trailerReady.length >= 2 && trailerReady.every((m) => movCat.isLegitTrailerUrl(m.trailerUrl)
+    && /[?&]bvid=BV[0-9A-Za-z]{10}/.test(m.trailerUrl)),
+  '至少 2 部电影填入经核实的真实官方预告片 BV 号，且只指向白名单嵌入域名')
+  assert(trailerReady.length < movCat.MOVIE_CATALOG.length
+    && movCat.MOVIE_CATALOG.every((m) => movCat.hasOfficialTrailer(m) || m.trailerUrl === ''),
+  '未核实预告片的条目 trailerUrl 留空触发海报降级，绝不编造 BV 号')
+  assert(!movCat.MOVIE_CATALOG.some((m) => /网盘|pan\.baidu|magnet:|\.torrent|盗版|看全片/.test(m.trailerUrl + m.intro.zh + m.intro.en))
     && movCat.MOVIES_BY_RATING[0].doubanRating >= movCat.MOVIES_BY_RATING[movCat.MOVIES_BY_RATING.length - 1].doubanRating,
-  '电影数据无网盘/盗版链接，且提供按豆瓣评分降序的视图')
+  '电影数据无网盘/盗版链接与全片引导，且提供按豆瓣评分降序的视图')
 
   // 页面接线：动态 import + 筛选分页 + 电影 Tab + 不动存储键
   const libSrc = fs.readFileSync(path.join(root, 'src/pages/Library.tsx'), 'utf8')
@@ -7108,19 +7241,22 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     && culSrc.includes('data-testid="culture-movie-list"'),
   '文化页新增「电影」Tab 且有独立演示卡列表')
   const modalSrc = fs.readFileSync(path.join(root, 'src/components/MoviePlayerModal.tsx'), 'utf8')
-  const movieJson = JSON.parse(fs.readFileSync(path.join(root, 'src/data/culture-movies.json'), 'utf8'))
+  const movieJson = JSON.parse(movieJsonText)
   assert(culSrc.includes('tab !== \'movie\' && expandedVideos.length')
     && culSrc.includes('<MoviePlayerModal') && modalSrc.includes('data-testid="movie-player-modal"'),
-  '扩展视频独立于原信息流，电影卡接入详情/播放弹窗')
+  '扩展视频独立于原信息流，电影卡接入应用内播放弹窗')
   assert(movieJson.length >= 10 && modalSrc.includes('aspect-video')
-    && modalSrc.includes('去【{movie.watchPlatform}】看全片')
-    && modalSrc.includes('target="_blank" rel="noopener noreferrer"')
-    && modalSrc.includes('受版权保护，请点击下方按钮去官方平台观看预告/全片')
+    && modalSrc.includes('src={movie.trailerUrl}') && modalSrc.includes('allowFullScreen')
+    && modalSrc.includes('当前网络受限，无法加载预告片') && modalSrc.includes('去官方平台观看预告')
+    && modalSrc.includes('window.open(movie.trailerUrl') && !modalSrc.includes('看全片')
     && modalSrc.includes('role="dialog"') && modalSrc.includes('aria-modal="true"'),
-  '电影 JSON 10+ 部，Modal 含 aspect-video / 正版跳转按钮 / 版权降级提示 / 无障碍属性')
-  assert(modalSrc.includes("hasOfficialTrailer(movie)") && modalSrc.includes("'failed'")
-    && modalSrc.includes('8000') && !/<iframe[^>]*src=\{movie\.embedUrl\}/.test(modalSrc.split('state === \'gate\'')[0] || ''),
-  'embedUrl 为空不渲染 iframe；有嵌入时点击加载 + 8s 超时/报错降级为海报')
+  '电影 JSON 10+ 部，Modal 含 16:9 iframe 应用内播放 / 降级文案 / 官方预告外链 / 无障碍属性')
+  assert(modalSrc.includes('hasOfficialTrailer(movie)') && modalSrc.includes("'failed'")
+    && modalSrc.includes('IFRAME_TIMEOUT_MS = 3000') && modalSrc.includes('onError={failToCover}')
+    && modalSrc.includes("state === 'failed' && renderFallback()")
+    && catBits.includes('data-testid="movie-play-trailer"') && catBits.includes('播放预告片')
+    && !catBits.includes('watchPlatform'),
+  '空源/3s 超时/onError 自动隐藏 iframe 降级海报；电影卡有显眼播放入口且无全片字段')
   const expandedSrc = ['bookCatalog.ts', 'cultureCatalog.ts', 'moviesCatalog.ts']
     .map((f) => stripComments(fs.readFileSync(path.join(root, 'src/data/expanded', f), 'utf8'))).join('\n')
   assert(!/localStorage\.|setItem\(|\.setItem|KEYS\./.test(expandedSrc),
@@ -7128,7 +7264,7 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏）/ 大文本存储迁移（IndexedDB 双表·索引/正文分离·字数与 CEFR 派生指标保留·迁移幂等·端到端零丢失·31 键契约不变）/ 内容扩充（书架 129 本公版书元数据·难度/主题筛选·每页 20 分页·古登堡搜索不编 ID / 文化 50+55=105 条合规视频·playlist-only 零编造 / 电影 10 部 JSON·官方预告合法嵌入+正版平台跳转看全片·embedUrl 留空降级海报·8s超时防白屏·watchUrl 合法域名·无盗版无网盘·动态 import 不进 31 键） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 首页场景库（40 场景·生活/职场/学术/旅行四类·等级 Tab 下划线高亮·挑战模式提示·任意等级零拦截直接进对话·两个文字入口·输入框主体不变·不新增存储键）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏）/ 大文本存储迁移（IndexedDB 双表·索引/正文分离·字数与 CEFR 派生指标保留·迁移幂等·端到端零丢失·31 键契约不变）/ 内容扩充（书架 129 本公版书元数据·难度/主题筛选·每页 20 分页·古登堡搜索不编 ID / 文化 50+55=105 条合规视频·playlist-only 零编造 / 电影 10 部 JSON·预告片纯净化（移除全片跳转）·2 部真实 BV 号应用内 iframe 播放·3s 超时/空源/onError 降级海报·无盗版无网盘·动态 import 不进 31 键） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp, useDerived } from '../store/useAppStore'
 import { analyzeText } from '../services/textAnalyzer'
-import { SAMPLE_TEXT, SAMPLE_TEXTS } from '../data/mockData'
+import { SAMPLE_TEXT } from '../data/mockData'
 import { getIeltsLevel } from '../data/ieltsLevels'
 import { speak } from '../lib/speech'
 import { Card, Chip, EmptyState, Icon, Loader, ProgressRing, SectionTitle } from '../components/ui'
@@ -9,6 +9,7 @@ import { Card, Chip, EmptyState, Icon, Loader, ProgressRing, SectionTitle } from
 import { recommendDailyTask } from '../services/dailyPlan'
 import { SyncBanner } from '../components/SyncBanner'
 import { DailyGoalModal } from '../components/DailyGoalModal'
+import { SceneLibrary } from '../components/SceneLibrary'
 
 const MIN_CHARS = 30
 
@@ -49,7 +50,10 @@ export function Home() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [goalOpen, setGoalOpen] = useState(false)
+  /** 预设场景库默认收纳：点「浏览全部场景」才展开（纯会话态，不落 localStorage） */
+  const [scenesOpen, setScenesOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const sceneRef = useRef<HTMLDivElement>(null)
   const chars = draftText.trim().length
   const level = getIeltsLevel(data.settings.ieltsLevel)
   /** [CEFR 等级层] 今日计划跟着用户当前选择走，而不是推荐等级 */
@@ -145,16 +149,14 @@ export function Home() {
       {/* ② 对话界面：紧跟在今日目标下面，中间不再插任何干扰元素。 */}
       <Card className="animate-in">
         <SectionTitle title="今天想聊哪一段英文？" subtitle="粘贴、上传，或者直接拿示例文本开一场冒险。" />
+        {/* 输入框上方只留两个核心操作：填入示例文本 / 上传文件。
+            已移除重复的示例标签（城市旅行 / 校园项目）与多余提示，字号统一 14px、热区 ≥44px。 */}
         <div className="mb-3 flex flex-wrap gap-2">
           <button type="button" onClick={() => { setDraftText(SAMPLE_TEXT); setError(''); notify('示例文本已就位，点击「生成学习场景」开始 ✨') }}
-            className="btn-primary !px-4 !py-2 !text-xs">
+            className="btn-primary !px-4 !text-sm">
             <Icon name="sparkles" size={15} />Try an example
           </button>
-          {SAMPLE_TEXTS.slice(1).map((s) => (
-            <button key={s.label} type="button" onClick={() => { setDraftText(s.text); setError('') }}
-              className="btn-ghost !px-3 !py-2 !text-xs">{s.label}</button>
-          ))}
-          <button type="button" onClick={() => fileRef.current?.click()} className="btn-ghost !px-3 !py-2 !text-xs">
+          <button type="button" onClick={() => fileRef.current?.click()} className="btn-ghost !px-4 !text-sm">
             <Icon name="upload" size={15} />上传 .txt / .md
           </button>
           <input ref={fileRef} type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" className="hidden"
@@ -185,22 +187,42 @@ export function Home() {
           </button>
         )}
 
-        {/* 大肥鱼自由对话：原先是首页一块独立大板块，现在收成对话区里的一个按钮。
-            仍是唯一入口，仍不新增底部导航项。 */}
-        <div className="mt-3 border-t border-brand-50 pt-3">
+        {/* 次要入口升级为品牌浅底胶囊按钮：输入框仍是首屏主体。
+            home-freetalk-entry 的 data-testid 与 navigate('freeTalk') 是门禁硬契约，原样保留。
+            触控：min-h-48px / 字号 14px；移动端并排、窄屏自动换行。 */}
+        <div className="mt-3 flex flex-wrap gap-3 border-t border-brand-50 pt-3">
           <button type="button" onClick={() => navigate('freeTalk')} data-testid="home-freetalk-entry"
-            className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-2xl bg-brand-50 px-4 py-2.5 text-[13px] font-bold text-brand-600 transition hover:bg-brand-100">
-            <Icon name="fish" size={18} />大肥鱼自由对话
+            className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-5 py-3 text-sm font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-100 active:scale-[0.98]">
+            <Icon name="fish" size={17} />大肥鱼自由对话
           </button>
-          <p className="mt-1.5 text-center text-[10px] leading-relaxed text-muted">
-            没有剧本，挑一条有脾气的胖鱼，用英 / 美 / 澳口音瞎聊
-          </p>
+          <button type="button" data-testid="home-browse-scenes-entry"
+            aria-expanded={scenesOpen}
+            onClick={() => {
+              setScenesOpen(true)
+              window.setTimeout(() => sceneRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 60)
+            }}
+            className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-full border border-brand-100 bg-slate-50 px-5 py-3 text-sm font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-50 active:scale-[0.98]">
+            <Icon name="cards" size={17} />浏览全部场景 <Icon name="right" size={14} />
+          </button>
         </div>
 
         <p className="mt-3 text-center text-[11px] leading-relaxed text-muted">
           无需 API Key · 分析与进度保存在本机浏览器 · 随时可在设置页清空
         </p>
       </Card>
+
+      {/* 预设场景库：默认收纳（CSS max-height + visibility 折叠，DOM 保留不影响冒烟）。
+          点「浏览全部场景」展开并滚动定位；展开发送后可从这里收起。 */}
+      <div ref={sceneRef} data-testid="scene-library-wrap"
+        className={scenesOpen ? 'cf-drawer cf-drawer-open' : 'cf-drawer cf-drawer-closed'}>
+        {scenesOpen && (
+          <button type="button" onClick={() => setScenesOpen(false)} data-testid="scene-library-collapse"
+            className="mb-2 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-2xl border border-brand-100 bg-white px-4 py-2 text-sm font-semibold text-muted transition hover:bg-brand-50">
+            收起场景库 <Icon name="close" size={14} />
+          </button>
+        )}
+        <SceneLibrary />
+      </div>
 
       {/* 续玩 / 待复习提示：只在真的有事时出现 */}
       {(unfinished || dueReviews.length > 0) && (
