@@ -6,7 +6,7 @@ import {
   startReadAloudAttempt, toPronunciationResult, sentenceTokens,
   type PronunciationCoverage, type ReadAloudAttemptHandle,
 } from '../services/pronunciation'
-import { speak } from '../lib/speech'
+import { speak, hasVoiceForLang } from '../lib/speech'
 import { Card, Chip, Icon, SectionTitle } from './ui'
 
 /**
@@ -38,12 +38,24 @@ function isTargetToken(key: string, word: string): boolean {
   return false
 }
 
+/** 是否含西里尔字母：俄语例句必须整句保真渲染，不能走拉丁分词 */
+function hasCyrillic(s: string): boolean {
+  return /[\u0400-\u04FF]/.test(s)
+}
+
 /** 例句逐词渲染：目标词始终高亮；有了结果后命中词绿、漏词灰。S2 例句区也复用它 */
 export function HighlightSentence({ sentence, target, coverage }: {
   sentence: string
   target: string
   coverage?: PronunciationCoverage | null
 }) {
+  /* [多语言·俄语 Bug 修复] sentenceTokens 的正则只保留 [A-Za-z'-]，会把西里尔字母
+   * 全部剔除，导致俄语例句被渲染成空白 —— 这正是 S2.5 看不到原句的根因。
+   * 俄语走整句保真渲染，完整保留重音符号；词级 coverage 高亮对俄语无意义（无拉丁 token），跳过。
+   * 英语路径逐字不变，既有断言不受影响。 */
+  if (hasCyrillic(sentence)) {
+    return <span className="en-text">{sentence}</span>
+  }
   const tokens = sentenceTokens(sentence)
   return (
     <span className="en-text">
@@ -101,6 +113,9 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
   const handleRef = useRef<ReadAloudAttemptHandle | null>(null)
   const aliveRef = useRef(true)
   const targetWord = entry.word.toLowerCase()
+  /** [多语言] 俄语词条用 ru-RU 发音；设备没有俄语语音包时给 UI 提示，绝不静默用英语音色念俄语 */
+  const speechLang = entry.language === 'ru' ? 'ru-RU' : undefined
+  const ruVoiceMissing = speechLang === 'ru-RU' && !hasVoiceForLang('ru-RU')
 
   useEffect(() => {
     aliveRef.current = true
@@ -110,7 +125,8 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
   /** 换词 / 展开时自动播放一次例句标准音（口音与语速跟随既有设置） */
   useEffect(() => {
     if (!expanded || !settings.wordAutoPlayAudio || !sentence) return
-    try { speak(sentence, settings) } catch { /* 无语音能力时静默 */ }
+    if (ruVoiceMissing) return
+    try { speak(sentence, settings, speechLang) } catch { /* 无语音能力时静默 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sentence, targetWord, expanded])
 
@@ -135,10 +151,12 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
   }, [phase])
 
   const playSentence = (rate?: number) => {
-    try { speak(sentence, rate === undefined ? settings : { ...settings, rate }) } catch { /* noop */ }
+    if (ruVoiceMissing) return
+    try { speak(sentence, rate === undefined ? settings : { ...settings, rate }, speechLang) } catch { /* noop */ }
   }
   const playWord = () => {
-    try { speak(entry.word, settings) } catch { /* noop */ }
+    if (ruVoiceMissing) return
+    try { speak(entry.word, settings, speechLang) } catch { /* noop */ }
   }
 
   const buildCompletion = (skipped: boolean, result: PronunciationResult | null, missed: string[]): PronunciationCompletion => ({
@@ -249,10 +267,31 @@ export function WordReadAloud({ entry, sentence, settings, onContinue }: WordRea
         subtitle="先听标准音，再把整句读出来。这里只看「读完整了吗」，不评判发音好坏。"
         right={mockMode ? <Chip tone="sun">演示模式</Chip> : <Chip tone="mint">真实识别</Chip>} />
 
-      {/* 目标例句：目标词始终高亮；有结果后命中词绿、漏词灰 */}
-      <div className="rounded-2xl border border-brand-50 bg-white/70 p-3 text-sm italic leading-relaxed">
-        <HighlightSentence sentence={sentence} target={entry.word} coverage={coverage} />
-      </div>
+      {/* [多语言] 俄语语音包缺失提示：不静默降级成英语音色念俄语 */}
+      {ruVoiceMissing && (
+        <p data-testid="ru-voice-missing" className="mt-2 rounded-xl bg-coral-100/70 px-3 py-2 text-[11px] font-bold leading-relaxed text-coral-600">
+          当前设备未安装俄语语音包，无法朗读俄语标准音；你仍可继续跟读与拼写。
+        </p>
+      )}
+
+      {/* [多语言·俄语 Bug 修复] 顶部原句区：带重音俄语例句 + 中文译文，用户必须看得见原句才跟读。
+          英语路径的例句区逐字保留，既有断言不受影响。 */}
+      {entry.language === 'ru' ? (
+        <div data-testid="read-aloud-source" className="mt-2 rounded-2xl border border-brand-100 bg-brand-50/50 p-3.5">
+          <p className="text-[10px] font-black tracking-widest text-brand-600">跟读原句 · 请看清再读</p>
+          <p data-testid="read-aloud-source-ru" className="en-text mt-1.5 text-base font-bold leading-relaxed text-ink">
+            <HighlightSentence sentence={entry.examples[0] ?? sentence} target={entry.word} coverage={coverage} />
+          </p>
+          <p data-testid="read-aloud-source-cn" className="mt-1 text-xs font-medium leading-relaxed text-muted">
+            {entry.examples[1] ?? ''}
+          </p>
+        </div>
+      ) : (
+        /* 目标例句：目标词始终高亮；有结果后命中词绿、漏词灰 */
+        <div className="rounded-2xl border border-brand-50 bg-white/70 p-3 text-sm italic leading-relaxed">
+          <HighlightSentence sentence={sentence} target={entry.word} coverage={coverage} />
+        </div>
+      )}
 
       {/* Step 1：听标准音 */}
       <div className="mt-3 flex flex-wrap gap-1.5">

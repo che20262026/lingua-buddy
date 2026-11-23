@@ -35,6 +35,8 @@ export function initProgress(entry: WordEntry, origin: WordProgress['origin'], n
     reviewCount: 0,
     errorCount: 0,
     correctStreak: 0,
+    // [多语言] 排程带语言标记；旧词库 entry.language 缺省视为 en，旧数据零迁移
+    language: entry.language ?? 'en',
   }
 }
 

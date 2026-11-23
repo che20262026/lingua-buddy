@@ -26,6 +26,9 @@ export type DeckId =
   /** [China Learner Track] 两个场景词包：复用同一套五步闭环，只是内容层不同 */
   | 'chinglish_fix' // 轨道 D 中式英语纠偏词包
   | 'speaking_core' // 轨道 C 开口核心表达词包
+  /** [多语言] 俄语分级词库：沿用同一套五步闭环，语言标记为 ru */
+  | 'ru_a1'         // 俄语 ТРКИ A1（CEFR A1）
+  | 'ru_a2'         // 俄语 ТРКИ A2（CEFR A2）
 
 export interface DeckMeta {
   id: DeckId
@@ -38,6 +41,8 @@ export interface DeckMeta {
   tint: string
   /** [China Learner Track] 场景词包标记；旧 7 个分级词库无此字段，语义不变 */
   source?: 'china_track'
+  /** [多语言] 词库所属语言；缺省 = en（旧词库语义不变） */
+  language?: 'en' | 'ru'
 }
 
 /** 单词条目。meaningZh ≤ 20 字；imageQuery 是场景描述、不含中文释义 */
@@ -60,6 +65,35 @@ export interface WordEntry {
   collocations: string[]
   /** [S2.5 新增] 静态发音小提示（重音 / 易混音）；无则不显示，绝不基于识别结果生成 */
   pronunciationTip?: string
+  /** [多语言] 词条语言；缺省 = en（旧词库语义不变，零迁移） */
+  language?: 'en' | 'ru'
+  /** [多语言·俄语] 带重音的西里尔写法（如 вóда）；word 字段存非重音形式以保证 findWord 命中 */
+  wordAccented?: string
+  /** [多语言·俄语] 词性：阳性 / 阴性 / 中性（俄语特有，英语词条无此字段） */
+  gender?: '阳性' | '阴性' | '中性'
+  /** [多语言·俄语] 分级：ТРКИ / CEFR 标签（A1、A2…）；英语词条沿用 cefr */
+  level?: string
+  /** [多语言·俄语] 名词六格变格（只有名词带此字段；动词/形容词/英语词条无） */
+  cases?: RussianCases
+}
+
+/**
+ * [多语言·俄语] 名词六格变格。字段值均为带重音的西里尔写法。
+ * 顺序固定为主→属→与→宾→工→前，供 S2 验证阶段的变格卡片按序呈现。
+ */
+export interface RussianCases {
+  /** 主格 именительный */
+  nom: string
+  /** 属格 родительный */
+  gen: string
+  /** 与格 дательный */
+  dat: string
+  /** 宾格 винительный */
+  acc: string
+  /** 工具格 творительный */
+  ins: string
+  /** 前置格 предложный */
+  pre: string
 }
 
 /** 紧凑元组 → WordEntry 的构造器，种子文件用它压缩体积 */
@@ -158,6 +192,8 @@ export interface WordProgress {
   /** [S2.5 新增] 跳过跟读：不扣 XP、不阻塞 S3，复习时可再次出现 */
   pronunciationSkipped?: boolean
   pronunciationLastResult?: PronunciationResult
+  /** [多语言] 排程词条所属语言；缺省 = en（旧存档零迁移，复习页据此选字形与发音） */
+  language?: 'en' | 'ru'
 }
 
 export interface WordProgressState {
@@ -170,8 +206,12 @@ export const DEFAULT_WORD_PROGRESS: WordProgressState = { words: {}, version: 1 
 
 /* ---------------- 会话草稿（lingua_word_session_draft） ---------------- */
 
-/** 状态机步骤：S1 猜义 → S2 验证 → S3 拼写 → S4 结算（S0 限流 / S5 排程在会话外） */
-export type SessionStep = 'guess' | 'verify' | 'spell' | 'summary'
+/**
+ * 状态机步骤：S1 猜义 → S2 验证 → [S2.5 跟读评分] → S3 拼写 → S4 结算（S0 限流 / S5 排程在会话外）
+ * - 'readaloud' 是 [多语言·俄语专项] 独立步骤：S2 精简验证之后、S3 之前的录音评分页。
+ *   英语词条不走此步（仍用 verify 同屏的 WordReadAloud），完全一致保留旧链路与冻结断言。
+ */
+export type SessionStep = 'guess' | 'verify' | 'readaloud' | 'spell' | 'summary'
 
 export interface StepRecord {
   word: string

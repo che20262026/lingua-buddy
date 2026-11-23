@@ -417,16 +417,20 @@ export function Review() {
                           <Chip tone={p.origin === 'wordlab' ? 'mint' : 'sun'}>{originLabel}</Chip>
                           <Chip tone="slate">{stage}</Chip>
                         </div>
-                        <p className="en-text mt-2 break-words text-base font-bold text-ink">{entry?.word ?? p.word}</p>
+                        <p className={entry?.language === 'ru' ? 'mt-2 break-words text-base font-bold text-ink' : 'en-text mt-2 break-words text-base font-bold text-ink'}>
+                          {entry?.language === 'ru' ? (entry.wordAccented ?? entry.word) : (entry?.word ?? p.word)}
+                        </p>
                         <p className="mt-1 text-xs text-brand-600">{entry?.meaningZh ?? '词场学习词'}</p>
-                        <p className="en-text mt-1.5 text-xs italic leading-relaxed text-muted">
+                        <p className={`mt-1.5 text-xs italic leading-relaxed text-muted ${entry?.language === 'ru' ? '' : 'en-text'}`}>
                           {entry?.examples[0] ?? `Review "${p.word}" in your own sentence.`}
                         </p>
                         <p className="mt-1.5 text-[10px] text-muted">
                           复习 {p.reviewCount} 次 · 错 {p.errorCount} 次{p.lastReviewedAt ? ` · 上次 ${formatDate(p.lastReviewedAt)}` : ''}
                         </p>
                       </div>
-                      <button type="button" onClick={() => speak(entry?.word ?? p.word, data.settings)} aria-label="朗读卡片"
+                      <button type="button" data-testid={entry?.language === 'ru' ? 'review-word-speak-ru' : undefined}
+                        onClick={() => speak(entry?.word ?? p.word, data.settings, entry?.language === 'ru' ? 'ru-RU' : undefined)}
+                        aria-label="朗读卡片"
                         className="text-brand-500 hover:text-brand-700"><Icon name="speaker" size={16} /></button>
                     </div>
                     <div className="mt-3 flex gap-2 border-t border-brand-50 pt-3">

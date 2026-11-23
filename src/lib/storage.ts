@@ -127,6 +127,8 @@ export const DEFAULT_SETTINGS: PersistedData['settings'] = {
   /** [成长系统新增] 默认开启 XP 动画与热力图 */
   showXpAnimation: true,
   showHeatmap: true,
+  /** [多语言] 词场默认英语；旧存档浅合并会自动补此字段 */
+  wordLanguage: 'en',
 }
 
 export const DEFAULT_PROFILE: PersistedData['profile'] = {

@@ -391,6 +391,8 @@ export interface Settings {
   /** [成长系统新增] 显示 +XP 轻提示 / 显示 90 天热力图 */
   showXpAnimation: boolean
   showHeatmap: boolean
+  /** [多语言] 词场当前语言；缺省 = en（旧存档零迁移）。不影响对话/阅读等其他模块的语言。 */
+  wordLanguage: 'en' | 'ru'
 }
 
 /** [修改点] 追加 4 个文学键 + 4 个文化键对应的字段；原有 8 个字段类型与语义完全不变 */

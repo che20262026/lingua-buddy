@@ -9,6 +9,8 @@ import { speak } from '../lib/speech'
 import { Card, Chip, EmptyState, Icon, ProgressBar, SectionTitle } from '../components/ui'
 import { HighlightSentence, WordReadAloud, pickReadAloudSentence } from '../components/WordReadAloud'
 import { PronunciationLab } from '../components/PronunciationLab'
+import { RussianGrammarCard } from '../components/RussianGrammarCard'
+import { PronunciationStep } from '../components/PronunciationStep'
 import { challengerFor } from '../data/wordDecks/pronunciationChallengers'
 import type { PronunciationCompletion, StepRecord, WordEntry, WordMedia, WordSessionDraft } from '../wordLabTypes'
 /** [成长系统] 所有新词 / 重拼 / 跟读标记都走统一发放入口 */
@@ -28,6 +30,13 @@ import { todayKey } from '../lib/storage'
  */
 
 type LocalError = { word: string; type: 'guess' | 'spelling'; detail: string }
+
+/** [多语言·俄语] 现代俄语 33 字母（不含 ё 的旧式写法单独列出，按输入法习惯排序） */
+const RU_ALPHABET = [
+  'а', 'б', 'в', 'г', 'д', 'е', 'ё', 'ж', 'з', 'и', 'й', 'к', 'л', 'м',
+  'н', 'о', 'п', 'р', 'с', 'т', 'у', 'ф', 'х', 'ц', 'ч', 'ш', 'щ', 'ъ',
+  'ы', 'ь', 'э', 'ю', 'я',
+]
 
 function blankRecord(spellingMode: 'typing' | 'handwriting'): StepRecord {
   return {
@@ -90,7 +99,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
     setHandwritingMode(data.settings.wordSpellingMode)
     setPronOpen(false)
     if (entry && data.settings.wordAutoSpeak) {
-      try { speak(entry.word, data.settings) } catch { /* 浏览器无语音能力时静默 */ }
+      try { speak(entry.word, data.settings, entry.language === 'ru' ? 'ru-RU' : undefined) } catch { /* 浏览器无语音能力时静默 */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wordKey])
@@ -143,7 +152,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
   const choices = entry ? buildChoices(entry, draft.deckId) : []
 
   /** 提交草稿：把当前词的记录写回，并推进到下一步 / 下一个词 */
-  const commit = (next: StepRecord, nextStep: 'guess' | 'verify' | 'spell' | 'summary', nextIndex = draft.index) => {
+  const commit = (next: StepRecord, nextStep: 'guess' | 'verify' | 'readaloud' | 'spell' | 'summary', nextIndex = draft.index) => {
     const records = [...draft.records]
     records[draft.index] = next
     app.update((prev) => ({
@@ -184,6 +193,11 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
   const handleReadAloudDone = (completion: PronunciationCompletion) => {
     setReadAloudResults((prev) => ({ ...prev, [completion.word]: completion }))
     commit({ ...record }, 'spell')
+  }
+
+  /** [多语言·俄语专项] S2 精简验证页 → 独立 S2.5 跟读评分页。英语词条不走此路径。 */
+  const goToReadAloud = () => {
+    commit({ ...record }, 'readaloud')
   }
 
   /* ---------------- S3 拼写 ---------------- */
@@ -386,9 +400,14 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
     )
   }
 
-  const stepNo = draft.step === 'guess' ? 'S1' : draft.step === 'verify' ? 'S2' : 'S3'
-  const stepName = draft.step === 'guess' ? '猜义' : draft.step === 'verify' ? '验证' : '拼写'
-  const pct = (draft.index + (draft.step === 'guess' ? 0.1 : draft.step === 'verify' ? 0.45 : 0.75)) / draft.words.length
+  const stepNo = draft.step === 'guess' ? 'S1' : draft.step === 'verify' ? 'S2'
+    : draft.step === 'readaloud' ? 'S2.5' : 'S3'
+  const stepName = draft.step === 'guess' ? '猜义' : draft.step === 'verify' ? '验证'
+    : draft.step === 'readaloud' ? '跟读评分' : '拼写'
+  const pct = (draft.index + (draft.step === 'guess' ? 0.1 : draft.step === 'verify' ? 0.45
+    : draft.step === 'readaloud' ? 0.6 : 0.75)) / draft.words.length
+  /** [多语言·俄语专项] 当前词是否走独立跟读评分步骤（英语词条保持旧链路） */
+  const isRuStep = entry?.language === 'ru'
 
   return (
     <div className="wl-stage animate-in">
@@ -416,7 +435,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
                 {maskTargetWord(entry.meaningEn, entry.word)}
               </p>
             </div>
-            <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
+            <button type="button" onClick={() => { try { speak(entry.word, data.settings, entry.language === 'ru' ? 'ru-RU' : undefined) } catch { /* noop */ } }}
               aria-label="听发音提示" className="rounded-xl bg-brand-50 p-2.5 text-brand-600 hover:bg-brand-100">
               <Icon name="speaker" size={20} />
             </button>
@@ -440,7 +459,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
           </div>
           <p className="mt-3 text-xs font-medium tracking-wide text-muted">{entry.phonetic} · {entry.pos} · CEFR {entry.cefr}</p>
           <div className="mt-5 flex items-center justify-center gap-2">
-            <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
+            <button type="button" onClick={() => { try { speak(entry.word, data.settings, entry.language === 'ru' ? 'ru-RU' : undefined) } catch { /* noop */ } }}
               aria-label="朗读单词" className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl bg-brand-50 px-4 text-sm font-bold text-brand-600 transition hover:bg-brand-100">
               <Icon name="speaker" size={18} />朗读
             </button>
@@ -504,7 +523,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
             right={<Chip tone={record.guessCorrect === true ? 'mint' : record.guessCorrect === false ? 'coral' : 'slate'}>
               {record.guessCorrect === true ? '猜对了' : record.guessCorrect === false ? '猜错了' : '自由猜测'}
             </Chip>} />
-          {data.settings.wordShowImage && media && (
+          {!isRuStep && data.settings.wordShowImage && media && (
             <div className="overflow-hidden rounded-2xl border border-white/90 bg-white/70">
               <img src={imageSrc(entry, media)} alt={entry.imageAlt} className="h-44 w-full object-contain" />
               {showAnnotation && (
@@ -514,7 +533,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
               )}
             </div>
           )}
-          {data.settings.wordShowImage && (
+          {!isRuStep && data.settings.wordShowImage && (
             <button type="button" onClick={() => setShowAnnotation(true)} disabled={showAnnotation}
               className="btn-ghost mt-2.5 w-full !py-2.5 !text-[11px] disabled:opacity-50">
               {showAnnotation ? '英文标注已显示' : '显示图片英文标注'}
@@ -530,31 +549,53 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
             </div>
           </div>
 
-          <div className="mt-3 space-y-1.5">
-            {entry.examples.map((ex) => (
-              <p key={ex} className="en-text rounded-xl bg-white/70 px-3 py-2 text-xs italic leading-relaxed text-ink/80">
-                <HighlightSentence sentence={ex} target={entry.word} />
-              </p>
-            ))}
-          </div>
+          {/* [多语言·俄语] S2 语法信息卡：性别 Badge + 六格变格折叠面板（仅俄语名词，英语零影响） */}
+          <RussianGrammarCard entry={entry} />
+
+          {/* 英语例句区：俄语专项下移到 S2.5 独立页展示，S2 保持精简 */}
+          {!isRuStep && (
+            <div className="mt-3 space-y-1.5">
+              {entry.examples.map((ex) => (
+                <p key={ex} className="en-text rounded-xl bg-white/70 px-3 py-2 text-xs italic leading-relaxed text-ink/80">
+                  <HighlightSentence sentence={ex} target={entry.word} />
+                </p>
+              ))}
+            </div>
+          )}
           {record.guess && (
             <p className="mt-2.5 text-[11px] leading-relaxed text-muted">你刚才的猜测：{record.guess}</p>
           )}
-          {/* [S2.5 修改点] 自评按钮只记录「熟不熟」，不再直接跳 S3；跟读完成后由下方组件放行 */}
-          <div className="mt-4 flex gap-2 border-t border-white/70 pt-4">
-            <button type="button" onClick={() => setRecord((r) => ({ ...r, verifiedKnown: false }))}
-              className={`${record.verifiedKnown === false ? 'btn-primary' : 'btn-ghost'} min-h-[48px] flex-1 !py-2 !text-xs`}>还不熟</button>
-            <button type="button" onClick={() => setRecord((r) => ({ ...r, verifiedKnown: true }))}
-              className={`${record.verifiedKnown === true ? 'btn-primary' : 'btn-ghost'} min-h-[48px] flex-1 !py-2 !text-xs`}>我认识</button>
-          </div>
-          <p className="mt-2 text-[10px] leading-relaxed text-muted">
-            先标记一下熟不熟，再往下跟读这句；跟读完成后会出现「去拼写」。
-          </p>
+          {/* [多语言·俄语专项] S2 只做验证：底部唯一出口是进入独立跟读评分页 */}
+          {isRuStep ? (
+            <button type="button" onClick={goToReadAloud} data-testid="ru-go-readaloud"
+              className="btn-primary mt-4 w-full !py-3.5 !text-sm">
+              下一步：跟读练习<Icon name="right" size={16} />
+            </button>
+          ) : (
+            <>
+              {/* [S2.5 修改点] 自评按钮只记录「熟不熟」，不再直接跳 S3；跟读完成后由下方组件放行 */}
+              <div className="mt-4 flex gap-2 border-t border-white/70 pt-4">
+                <button type="button" onClick={() => setRecord((r) => ({ ...r, verifiedKnown: false }))}
+                  className={`${record.verifiedKnown === false ? 'btn-primary' : 'btn-ghost'} min-h-[48px] flex-1 !py-2 !text-xs`}>还不熟</button>
+                <button type="button" onClick={() => setRecord((r) => ({ ...r, verifiedKnown: true }))}
+                  className={`${record.verifiedKnown === true ? 'btn-primary' : 'btn-ghost'} min-h-[48px] flex-1 !py-2 !text-xs`}>我认识</button>
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-muted">
+                先标记一下熟不熟，再往下跟读这句；跟读完成后会出现「去拼写」。
+              </p>
+            </>
+          )}
         </div>
       )}
 
-      {/* [S2.5 新增] 跟读区域留在 S2 页面下方，不跳转新页面，图—句—音同屏连贯 */}
-      {draft.step === 'verify' && (
+      {/* [多语言·俄语专项] 独立 S2.5：跟读 + 前端录音评分页；英语词条仍用下方同屏 WordReadAloud */}
+      {draft.step === 'readaloud' && entry && (
+        <PronunciationStep key={`ra-${wordKey}`} entry={entry} settings={data.settings}
+          sentence={pickReadAloudSentence(entry)} onContinue={handleReadAloudDone} />
+      )}
+
+      {/* [S2.5 新增] 英语跟读区域留在 S2 页面下方，图—句—音同屏连贯；俄语已拆到独立步骤 */}
+      {draft.step === 'verify' && !isRuStep && (
         <WordReadAloud key={wordKey} entry={entry} sentence={pickReadAloudSentence(entry)}
           settings={data.settings} onContinue={handleReadAloudDone} />
       )}
@@ -573,10 +614,31 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
 
           {handwritingMode === 'typing' ? (
             <>
-              <input className="field en-text !bg-white/90 !py-4 !text-base" value={spellInput} autoComplete="off" spellCheck={false}
+              <input className={entry?.language === 'ru' ? 'field !bg-white/90 !py-4 !text-base' : 'field en-text !bg-white/90 !py-4 !text-base'}
+                value={spellInput} autoComplete="off" spellCheck={false}
                 onChange={(e) => setSpellInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') submitSpelling() }}
-                placeholder="不提示字母数，凭记忆拼写" />
+                placeholder={entry?.language === 'ru' ? '点下方俄语字母键盘拼写，或直接用输入法' : '不提示字母数，凭记忆拼写'} />
+              {/* [多语言·俄语] 33 字母软键盘：手机无西里尔输入法也能完成 S3 拼写。
+                  仅追加/删除 spellInput 字符，不触碰 submitSpelling / commit / advance 三条冻结路径。 */}
+              {entry?.language === 'ru' && (
+                <div data-testid="ru-keyboard" className="mt-3 rounded-2xl bg-white/85 p-3">
+                  <p className="text-[10px] font-bold text-muted">俄语字母键盘 · 点击拼写（33 字母）</p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {RU_ALPHABET.map((ch) => (
+                      <button key={ch} type="button" aria-label={`输入 ${ch}`}
+                        onClick={() => setSpellInput((v) => v + ch)}
+                        className="flex h-10 min-w-10 items-center justify-center rounded-lg bg-brand-50 px-1.5 text-sm font-bold text-brand-700 transition active:scale-95 hover:bg-brand-100">
+                        {ch}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setSpellInput((v) => v.slice(0, -1))}
+                    className="mt-2 flex min-h-[44px] w-full items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-muted transition active:scale-[0.98]">
+                    ⌫ 退格
+                  </button>
+                </div>
+              )}
               {cells && (
                 <div className="mt-3 rounded-2xl bg-white/80 p-3">
                   <p className="text-[10px] font-bold text-muted">逐字母比对（绿色正确 / 红色需修改）</p>
@@ -617,7 +679,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
               </div>
             </>
           )}
-          <button type="button" onClick={() => { try { speak(entry.word, data.settings) } catch { /* noop */ } }}
+          <button type="button" onClick={() => { try { speak(entry.word, data.settings, entry.language === 'ru' ? 'ru-RU' : undefined) } catch { /* noop */ } }}
             className="btn-ghost mt-3 w-full !py-2.5 !text-[11px]">
             <Icon name="speaker" size={14} />听发音提示（不显示拼写）
           </button>

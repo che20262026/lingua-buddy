@@ -1,5 +1,5 @@
 import { useApp } from '../store/useAppStore'
-import { DECK_IDS, DECK_META, CHINA_DECK_IDS } from '../data/wordDecks'
+import { DECK_IDS, DECK_META, CHINA_DECK_IDS, RUSSIAN_DECK_IDS_ALL } from '../data/wordDecks'
 import { remainingQuota, startWordSession } from '../lib/wordLabFlow'
 import { Card, Chip, Icon, SectionTitle } from '../components/ui'
 import type { DeckId } from '../wordLabTypes'
@@ -11,6 +11,8 @@ export function DeckPicker() {
   const active = data.deckSelection.activeDeckId
   const remaining = remainingQuota(data.wordDailyQuota)
   const quotaFull = remaining <= 0
+  /** [多语言] 俄语词库区块只在当前语言为 ru 时显示；英语 7 库区块原样不动 */
+  const showRussian = (data.settings.wordLanguage ?? 'en') === 'ru'
 
   const counts: Record<string, number> = {}
   for (const p of Object.values(data.wordProgress.words)) {
@@ -68,6 +70,47 @@ export function DeckPicker() {
           })}
         </div>
       </Card>
+
+      {/* [多语言] 俄语 ТРКИ 分级词库：当前语言为 ru 时显示，复用同一套五步闭环 */}
+      {showRussian && (
+        <Card testId="russian-decks">
+          <SectionTitle title="俄语词库 · Русский" subtitle="ТРКИ / CEFR 分级；ru-RU 发音与西里尔软键盘，进度独立标记。"
+            right={<Chip tone="brand">{RUSSIAN_DECK_IDS_ALL.length} 个词库</Chip>} />
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {RUSSIAN_DECK_IDS_ALL.map((id: DeckId) => {
+              const meta = DECK_META[id]
+              const learned = counts[id] || 0
+              const selected = active === id
+              return (
+                <div key={id} data-testid={`russian-deck-${id}`}
+                  className={`rounded-2xl border p-3.5 transition ${selected ? 'border-brand-300 bg-brand-50/60' : 'border-white/80 bg-white/70'}`}>
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-xl shadow-soft">{meta.emblem}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-display text-sm font-black text-ink">{meta.name}</p>
+                        {selected && <Chip tone="brand">当前</Chip>}
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-muted">{meta.subtitle}</p>
+                      <p className="mt-1 text-[10px] leading-relaxed text-muted">分片大小 {meta.shardSize} 词 · 已开始 {learned} 词</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" disabled={quotaFull} onClick={() => startWordSession(app, id)}
+                      className="btn-primary flex-1 !py-2 !text-[11px] disabled:opacity-40">
+                      <Icon name="cards" size={13} />{quotaFull ? '今日已满' : '开始学习'}
+                    </button>
+                    <button type="button" onClick={() => {
+                      app.update((prev) => ({ ...prev, deckSelection: { activeDeckId: id, pickedAt: Date.now() } }))
+                      app.notify(`已切换到「${meta.name}」`)
+                    }} className="btn-ghost !py-2 !text-[11px]">设为当前</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
 
       {/* [China Learner Track] 两个场景词包：并列注册，复用同一套五步闭环 */}
       <Card testId="china-track-packs">

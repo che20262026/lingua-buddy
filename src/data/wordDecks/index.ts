@@ -19,9 +19,13 @@ import {
   CHINA_TRACK_DECK_IDS, CHINA_TRACK_DECK_META,
   CHINGLISH_FIX_SEED, SPEAKING_CORE_SEED,
 } from './chinaTrackPacks'
+/** [多语言] 俄语 A1/A2 词库：并列注册，不进 DECK_IDS（仍 7 个） */
+import {
+  RUSSIAN_DECK_IDS, RUSSIAN_DECK_META, RU_A1_SEED, RU_A2_SEED,
+} from './russianDecks'
 
 /**
- * DECK_META 含全部 9 个 id（7 个分级词库 + 2 个 china_track 场景词包），
+ * DECK_META 含全部 11 个 id（7 个分级词库 + 2 个 china_track 场景词包 + 2 个俄语词库），
  * 保证 WordLabHome / WordSession 用 DECK_META[deckId] 查新词包时不会落空。
  * DECK_IDS 仍严格是原来的 7 个，旧逻辑、旧断言与旧存档语义零改动。
  */
@@ -34,6 +38,7 @@ export const DECK_META: Record<DeckId, DeckMeta> = {
   ielts_65: { id: 'ielts_65', name: '雅思 6.5', subtitle: '学术与社会议题 · B2', cefr: 'B2', shardSize: 500, emblem: '🥈', tint: 'coral' },
   ielts_75: { id: 'ielts_75', name: '雅思 7.5', subtitle: '高阶学术表达 · C1', cefr: 'C1', shardSize: 500, emblem: '🥇', tint: 'sun' },
   ...CHINA_TRACK_DECK_META,
+  ...RUSSIAN_DECK_META,
 }
 
 /** 原有 7 个分级词库：显式数组，不受场景词包扩容影响 */
@@ -44,8 +49,11 @@ export const DECK_IDS: DeckId[] = [
 /** [China Learner Track] 两个场景词包 id（source='china_track'） */
 export const CHINA_DECK_IDS: DeckId[] = [...CHINA_TRACK_DECK_IDS]
 
+/** [多语言] 俄语词库 id（language='ru'） */
+export const RUSSIAN_DECK_IDS_ALL: DeckId[] = [...RUSSIAN_DECK_IDS]
+
 /** 全量 id：仅用于跨库查找与外部生词匹配 */
-export const ALL_DECK_IDS: DeckId[] = [...DECK_IDS, ...CHINA_DECK_IDS]
+export const ALL_DECK_IDS: DeckId[] = [...DECK_IDS, ...CHINA_DECK_IDS, ...RUSSIAN_DECK_IDS_ALL]
 
 /** 种子数据（内存中的「第 1 片」）；生产环境可替换为 fetch 分片 JSON */
 const SEEDS: Record<DeckId, WordEntry[]> = {
@@ -58,6 +66,8 @@ const SEEDS: Record<DeckId, WordEntry[]> = {
   ielts_75: IELTS75_SEED,
   chinglish_fix: CHINGLISH_FIX_SEED,
   speaking_core: SPEAKING_CORE_SEED,
+  ru_a1: RU_A1_SEED,
+  ru_a2: RU_A2_SEED,
 }
 
 /** 可替换的分片加载器：默认走内存种子；测试/未来可用 setShardLoader 注入 fetch 版本 */

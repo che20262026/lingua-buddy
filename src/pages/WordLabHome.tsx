@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useApp } from '../store/useAppStore'
 import { dueWords, wordLabStats } from '../lib/wordScheduler'
 import { remainingQuota, startWordSession, SESSION_SIZE } from '../lib/wordLabFlow'
-import { DECK_IDS, DECK_META } from '../data/wordDecks'
+import { DECK_IDS, DECK_META, firstShard } from '../data/wordDecks'
 import { Card, Chip, EmptyState, Icon, ProgressBar, ProgressRing, SectionTitle } from '../components/ui'
 import type { DeckId } from '../wordLabTypes'
 
@@ -34,6 +34,13 @@ export function WordLabHome() {
   const app = useApp()
   const { data } = app
   const [moreOpen, setMoreOpen] = useState(false)
+  /** [多语言] 语言切换底部面板开关；当前语言来自 settings.wordLanguage（持久化、不新增键） */
+  const [langOpen, setLangOpen] = useState(false)
+  const currentLang = data.settings.wordLanguage ?? 'en'
+  /** 按当前语言取可选词库：俄语只展示 ru_a1/ru_a2，英语展示原 7 库 */
+  const visibleDecks = currentLang === 'ru'
+    ? (['ru_a1', 'ru_a2'] as DeckId[])
+    : DECK_IDS
   const stats = wordLabStats(data.wordProgress)
   const due = dueWords(data.wordProgress)
   const remaining = remainingQuota(data.wordDailyQuota)
@@ -53,6 +60,7 @@ export function WordLabHome() {
   const daysLeft = Math.max(0, Math.ceil((50 - deckLearned) / Math.max(data.wordDailyQuota.limit, 1)))
 
   return (
+    <>
     <div className="wl-board animate-in min-h-screen bg-[#f7f8fb] px-4 pb-32 pt-5 sm:px-6">
       <div className="mx-auto max-w-[640px] space-y-3">
         {/* 改动 A：今日词场 + 当前词库 并列双卡（窄屏堆叠，≥640px 两列等宽） */}
@@ -169,10 +177,18 @@ export function WordLabHome() {
         )}
 
         {/* 改动 B：概览 + 易错本 收进一个「更多」入口（条件渲染下拉，不进 DOM 即真正不可见） */}
-        <div className="relative flex justify-end">
+        <div className="relative flex items-center justify-end gap-2">
+          {/* 「更多」按钮保持在 language 按钮之前：冒烟 click(/更多/) 按首个 textContent 命中，
+              若 language 按钮在前会被误命中（项目既有坑）。 */}
           <button type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}
             className="inline-flex min-h-[44px] items-center gap-1.5 rounded-2xl bg-white px-4 text-xs font-bold text-brand-600 shadow-sm transition hover:bg-brand-50">
             <Icon name="info" size={15} />更多<Icon name="down" size={13} />
+          </button>
+          {/* [多语言] 语言切换入口：与「更多」并列的独立按钮，文案唯一不冲突 */}
+          <button type="button" data-testid="wordlab-language-entry" aria-expanded={langOpen}
+            onClick={() => setLangOpen(true)}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-2xl bg-white px-4 text-xs font-bold text-brand-600 shadow-sm transition hover:bg-brand-50">
+            🌐 更多语言
           </button>
           {moreOpen && (
             <div className="absolute right-0 top-[48px] z-20 w-56 rounded-2xl border border-white/80 bg-white p-1.5 shadow-float">
@@ -199,6 +215,59 @@ export function WordLabHome() {
         </div>
       </div>
     </div>
+
+    {/* [多语言] 语言切换底部面板：挂在 animate-in 容器之外，fixed 定位不被 transform 破坏。
+        非原生 dialog（jsdom 未实现 showModal）；Esc / 遮罩轻关闭；纯会话态开关 + settings 持久化选择。 */}
+    {langOpen && (
+      <div className="dlg-backdrop fixed inset-0 z-[90] flex items-end justify-center bg-ink/45 backdrop-blur-sm"
+        onMouseDown={(e) => { if (e.target === e.currentTarget) setLangOpen(false) }}>
+        <div role="dialog" aria-modal="true" aria-label="选择词场语言" data-testid="wordlab-language-sheet"
+          className="dlg-panel w-full max-w-lg rounded-t-3xl bg-white pb-[calc(16px_+_env(safe-area-inset-bottom))] shadow-float">
+          <div className="flex items-center justify-between border-b border-brand-50 px-4 py-3.5">
+            <div>
+              <p className="text-[15px] font-black text-ink">选择词场语言</p>
+              <p className="mt-0.5 text-[11px] text-muted">切换后词库、发音与拼写键盘同步更新；进度互不覆盖。</p>
+            </div>
+            <button type="button" onClick={() => setLangOpen(false)} aria-label="关闭语言选择"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-muted">
+              <Icon name="close" size={18} />
+            </button>
+          </div>
+          <div className="space-y-1.5 px-4 py-3">
+            {/* 英语：默认选中，显示当前教材 / 等级 */}
+            <button type="button" data-testid="wordlab-lang-en" onClick={() => { app.update((p) => ({ ...p, settings: { ...p.settings, wordLanguage: 'en' } })); setLangOpen(false) }}
+              className={`flex min-h-[56px] w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${currentLang === 'en' ? 'border-brand-400 bg-brand-50' : 'border-brand-50 bg-white'}`}>
+              <span className="text-2xl">🇬🇧</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-ink">英语 English {currentLang === 'en' && <span className="text-brand-600">· 已选中</span>}</span>
+                <span className="mt-0.5 block text-[11px] text-muted">7 个分级词库 · 当前教材：{meta?.name ?? '未选'} · CEFR {meta?.cefr ?? '—'}</span>
+              </span>
+            </button>
+            {/* 俄语：可点击切换 */}
+            <button type="button" data-testid="wordlab-lang-ru" onClick={() => { app.update((p) => ({ ...p, settings: { ...p.settings, wordLanguage: 'ru' } })); setLangOpen(false) }}
+              className={`flex min-h-[56px] w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${currentLang === 'ru' ? 'border-brand-400 bg-brand-50' : 'border-brand-50 bg-white'}`}>
+              <span className="text-2xl">🇷🇺</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-ink">俄语 Русский {currentLang === 'ru' && <span className="text-brand-600">· 已选中</span>}</span>
+                <span className="mt-0.5 block text-[11px] text-muted">ТРКИ A1 / A2 两个词库 · ru-RU 发音 · 西里尔软键盘</span>
+              </span>
+            </button>
+            {/* 预留语种：置灰、不可点击 */}
+            {[['🇯🇵', '日语 日本語'], ['🇫🇷', '法语 Français']].map(([flag, label]) => (
+              <div key={label} data-testid={`wordlab-lang-soon-${label.split(' ')[1]}`}
+                className="flex min-h-[56px] w-full items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3 opacity-55">
+                <span className="text-2xl">{flag}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold text-muted">{label}</span>
+                  <span className="mt-0.5 block text-[11px] text-muted">敬请期待</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 

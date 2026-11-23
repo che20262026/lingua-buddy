@@ -1345,6 +1345,267 @@ try {
   assert((await wlDecks.loadShard('cet4', 0)).length === 50, 'resetShardLoader 恢复默认种子分片')
   assert(wlDecks.findWord('abandon')?.word === 'abandon', '跨词库按小写查找词条')
 
+  /* ---- [多语言] 俄语词库：契约字段 / 分级 / 重音 / 性别 / 不进 DECK_IDS ---- */
+  const ruDecks = await loadModule('src/data/wordDecks/russianDecks.ts', 'ru-decks')
+  assert(ruDecks.RUSSIAN_DECK_IDS.length === 2
+    && ruDecks.RUSSIAN_DECK_IDS.every((id) => ['ru_a1', 'ru_a2'].includes(id))
+    && wlDecks.DECK_IDS.length === 7 && !wlDecks.DECK_IDS.some((id) => id.startsWith('ru_')),
+  '俄语 A1/A2 两个词库并列注册，DECK_IDS 仍是 7 个英语库（冻结断言不破）')
+  assert(ruDecks.RUSSIAN_SEEDS_RAW.length >= 20
+    && ruDecks.RUSSIAN_SEEDS_RAW.every((s) => s.id && s.word && s.meaning && s.pos
+      && ['阳性', '阴性', '中性'].includes(s.gender) && s.exampleRu && s.exampleCn && ['A1', 'A2'].includes(s.level)),
+  '俄语词条含 id/带重音 word/meaning/pos/gender/exampleRu/exampleCn/level 全部契约字段')
+  assert(ruDecks.RUSSIAN_SEEDS_RAW.some((s) => /[\u0300-\u036f]/.test(s.word.normalize('NFD'))),
+  '俄语词带重音标记（NFD 分解可见组合重音）')
+  assert(wlDecks.firstShard('ru_a1').length >= 10 && wlDecks.firstShard('ru_a2').length >= 10
+    && wlDecks.firstShard('ru_a1').every((w) => w.language === 'ru' && w.gender && w.wordAccented && w.level),
+  '俄语种子映射成 WordEntry 且带 language=ru / gender / wordAccented / level 可选字段')
+  assert(wlDecks.findWord(wlDecks.firstShard('ru_a1')[0].word)?.language === 'ru',
+  'findWord 能按非重音形式命中俄语词（带重音写法存 wordAccented，不改 findWord）')
+  assert(wlDecks.DECK_META.ru_a1.language === 'ru' && wlDecks.DECK_META.ru_a2.language === 'ru'
+    && wlDecks.DECK_META.junior_3500.language === undefined,
+  '俄语词库 meta 标 language=ru，旧 7 库 meta 无 language 字段（语义不变）')
+
+  /* ---- [多语言] 排程语言标记 / 设置持久化 / 发音 lang / 软键盘 ---- */
+  const ruNow = 1_800_000_000_000
+  const ruProgress = wlSched.initProgress(wlDecks.firstShard('ru_a1')[0], 'wordlab', ruNow)
+  const enProgress = wlSched.initProgress(wlDecks.firstShard('junior_3500')[0], 'wordlab', ruNow)
+  assert(ruProgress.language === 'ru' && enProgress.language === 'en'
+    && ruProgress.status === 'ladder' && ruProgress.ladderStep === 0,
+  'SM-2 排程带 language 标记（ru/en），阶梯初始化逻辑不变')
+  const advancedRu = wlSched.advanceProgress(ruProgress, true, ruNow)
+  assert(advancedRu.language === 'ru' && advancedRu.ladderStep === 1
+    && JSON.stringify(wlSched.advanceProgress(enProgress, true, ruNow)).includes('"language":"en"'),
+  '复习推进后 language 标记保持，英语/俄语进度互不覆盖')
+  assert(wlStorage.DEFAULT_SETTINGS.wordLanguage === 'en'
+    && Object.keys(wlStorage.KEYS).length === 31,
+  'currentLanguage 存在 settings 字段里（默认 en），31 键契约不变')
+  const speechSrc = fs.readFileSync(path.join(root, 'src/lib/speech.ts'), 'utf8')
+  assert(/export function hasVoiceForLang\(/.test(speechSrc)
+    && speechSrc.includes('const targetLang = lang ?? settings.accent')
+    && (speechSrc.match(/ voices\.find\(\(v\) => \(v\.lang \|\| ''\)\.replace\('_', '-'\) === wantLang\)/g) || []).length >= 1,
+  '发音适配：speak 增加可选 lang 参数（默认走 accent 不变），非英语优先匹配对应语种音色')
+  const wsCompiledSrc = fs.readFileSync(path.join(root, 'src/pages/WordSession.tsx'), 'utf8')
+  const ruCompiledSrc = fs.readFileSync(path.join(root, 'src/components/WordReadAloud.tsx'), 'utf8')
+  assert(wsCompiledSrc.includes('data-testid="ru-keyboard"')
+    && /RU_ALPHABET = \[/.test(wsCompiledSrc) && (wsCompiledSrc.match(/'ё'/g) || []).length >= 1,
+  'S3 俄语软键盘：33 字母（含 ё）点击拼凑，独立 data-testid')
+  assert(ruCompiledSrc.includes('data-testid="ru-voice-missing"')
+    && ruCompiledSrc.includes('当前设备未安装俄语语音包')
+    && ruCompiledSrc.includes("entry.language === 'ru' ? 'ru-RU' : undefined"),
+  'S2.5 跟读：俄语用 ru-RU 发音，缺语音包给 UI 提示，不静默降级')
+
+  /* ---- [俄语语法] 六格数据契约 / S2.5 原句显示修复 / S2 语法卡片 ---- */
+  const CASE_KEYS = ['nom', 'gen', 'dat', 'acc', 'ins', 'pre']
+  const ruNouns = ruDecks.RUSSIAN_SEEDS_RAW.filter((s) => s.pos === '名词')
+  const ruVerbs = ruDecks.RUSSIAN_SEEDS_RAW.filter((s) => s.pos !== '名词')
+  assert(ruNouns.length >= 10
+    && ruNouns.every((s) => s.cases && CASE_KEYS.every((k) => s.cases[k] && /[А-Яа-яЁё]/.test(s.cases[k]))),
+  '所有俄语名词带 nom/gen/dat/acc/ins/pre 六格真实西里尔写法（≥10 个名词）')
+  assert(ruNouns.some((s) => s.gender === '阳性') && ruNouns.some((s) => s.gender === '阴性')
+    && ruNouns.some((s) => s.gender === '中性'),
+  '俄语名词覆盖阳性/阴性/中性三类性别')
+  assert(ruVerbs.every((s) => !s.cases),
+  '动词/形容词不带 cases 字段（只有名词有性数格变化）')
+  // 抽查вода六格：主格=带重音原形，且六格两两不完全相同（真变格而非复制）
+  const waterSeed = ruNouns.find((s) => s.id === 'ru-a1-01')
+  assert(waterSeed && waterSeed.cases.nom === waterSeed.word
+    && new Set(CASE_KEYS.map((k) => waterSeed.cases[k])).size >= 4,
+  'вода 六格：主格=带重音原形，各格有真实屈折变化（非复制占位）')
+  // WordEntry 无 id 字段（id 只在 seed），вода 是 ru_a1 首项
+  const ruNounEntry = wlDecks.firstShard('ru_a1')[0]
+  assert(ruNounEntry && ruNounEntry.word === 'вода' && ruNounEntry.cases
+    && CASE_KEYS.every((k) => ruNounEntry.cases[k]),
+  'toWordEntry 把 cases 原样映射到 WordEntry（S2 卡片可直接读）')
+  // S2.5 原句显示 Bug 修复：西里尔走整句保真渲染 + 顶部俄中双语原句区
+  assert(ruCompiledSrc.includes('function hasCyrillic')
+    && /\[\\u0400-\\u04FF\]/.test(ruCompiledSrc)
+    && ruCompiledSrc.includes('if (hasCyrillic(sentence))'),
+  'S2.5 修复：HighlightSentence 对西里尔句子整句保真渲染（原先用拉丁分词导致俄语例句空白）')
+  assert(ruCompiledSrc.includes('data-testid="read-aloud-source-ru"')
+    && ruCompiledSrc.includes('data-testid="read-aloud-source-cn"')
+    && ruCompiledSrc.includes("entry.examples[1]"),
+  'S2.5 顶部原句区同时显示带重音俄语例句与中文翻译（用户看得见原句才跟读）')
+  // S2 语法卡片：性别 Badge + 六格折叠面板，零状态机改动
+  const grammarSrc = fs.readFileSync(path.join(root, 'src/components/RussianGrammarCard.tsx'), 'utf8')
+  assert(wsCompiledSrc.includes('<RussianGrammarCard entry={entry} />')
+    && grammarSrc.includes('data-testid="ru-grammar-card"')
+    && grammarSrc.includes('data-testid="ru-declensions"')
+    && grammarSrc.includes('名词变格 (Declensions)'),
+  'S2 验证阶段挂载语法卡片：性别 Badge + 「名词变格 (Declensions)」折叠面板')
+  assert(grammarSrc.includes('<details') && grammarSrc.includes('data-testid={`ru-case-${row.key}`}')
+    && grammarSrc.includes('grid-cols-2')
+    && CASE_KEYS.every((k) => grammarSrc.includes(`key: '${k}'`)),
+  '变格面板用原生 details（DOM 保留）+ 2 列网格列出全部 6 格')
+  assert(grammarSrc.includes('阴性: \'coral\'') && grammarSrc.includes('阳性: \'brand\'')
+    && grammarSrc.includes('中性: \'slate\''),
+  '性别 Badge 用既有色板：阴性粉(coral)/阳性蓝(brand)/中性灰(slate)，不引入新配色')
+
+  /* ---- 运行时：真挂载 HighlightSentence + RussianGrammarCard，验证俄语可见 ---- */
+  {
+    const RU_ENTRY = `
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { HighlightSentence } from './src/components/WordReadAloud.tsx'
+import { RussianGrammarCard } from './src/components/RussianGrammarCard.tsx'
+window.__mountRu = (el, entry, sentence) => {
+  const r = createRoot(el)
+  r.render(React.createElement('div', null,
+    React.createElement(HighlightSentence, { sentence, target: entry.word }),
+    React.createElement(RussianGrammarCard, { entry })))
+  return () => r.unmount()
+}
+`
+    const ruOut = await build({
+      stdin: { contents: RU_ENTRY, resolveDir: root, loader: 'tsx' },
+      bundle: true, format: 'iife', platform: 'browser', jsx: 'automatic', write: false,
+      define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
+    })
+    const ruVc = new VirtualConsole()
+    const ruMountErrors = []
+    ruVc.on('jsdomError', (e) => ruMountErrors.push(e.message))
+    ruVc.on('error', () => {})
+    const ruDom = new JSDOM('<!doctype html><html><body><div id="ru"></div></body></html>',
+      { url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: ruVc })
+    const rw = ruDom.window
+    if (typeof rw.structuredClone !== 'function') rw.structuredClone = (v) => globalThis.structuredClone(v)
+    if (!rw.crypto) rw.crypto = {}
+    if (typeof rw.crypto.randomUUID !== 'function') rw.crypto.randomUUID = () => 'ru-uuid-' + Math.random().toString(16).slice(2)
+    rw.eval(ruOut.outputFiles[0].text)
+    const rEl = rw.document.getElementById('ru')
+    rw.__mountRu(rEl, waterSeedEntryForSmoke(), waterSeedEntryForSmoke().examples[0])
+    await tick(150) // createRoot 并发提交，等一拍再读 DOM
+    const ruText = rEl.textContent
+    assert(ruText.includes(waterSeedEntryForSmoke().examples[0]),
+      '运行时：HighlightSentence 对西里尔例句整句保真渲染，带重音俄语原句真实可见（Bug 已修）')
+    assert(ruMountErrors.length === 0, '俄语组件独立挂载零 jsdom 错误')
+    const card = rEl.querySelector('[data-testid="ru-grammar-card"]')
+    assert(!!card && /阴性/.test(card.textContent) && !!rEl.querySelector('[data-testid="ru-declensions"]'),
+      '运行时：俄语名词语法卡渲染「阴性」Badge 与「名词变格」折叠面板')
+    assert(CASE_KEYS.every((k) => !!rEl.querySelector(`[data-testid="ru-case-${k}"]`)
+      && rEl.querySelector(`[data-testid="ru-case-${k}"]`).textContent.includes(waterSeedEntryForSmoke().cases[k])),
+    '运行时：六格面板逐格渲染真实西里尔拼写（nom/gen/dat/acc/ins/pre 全在 DOM）')
+    assert(!rEl.querySelector('[data-testid="ru-grammar-card"]').textContent.includes('undefined'),
+      '运行时：语法卡无 undefined 空值（cases 数据完整映射）')
+    // 英语词不带 cases / language，语法卡应完全不渲染（零副作用）
+    const enHost = rw.document.createElement('div')
+    rw.document.body.appendChild(enHost)
+    rw.__mountRu(enHost, englishNoGrammarForSmoke(), 'I think so.')
+    await tick(150)
+    // 英语挂载走同一函数只会渲染 HighlightSentence + 返回 null 的语法卡
+    assert(!!enHost.textContent && !enHost.querySelector('[data-testid="ru-grammar-card"]'),
+      '运行时：英语词正常渲染例句但不渲染俄语语法卡（零副作用）')
+    ruDom.window.close()
+    function waterSeedEntryForSmoke() {
+      return wlDecks.firstShard('ru_a1')[0] // вода 是 ru_a1 首项；WordEntry 无 id 字段
+    }
+    function englishNoGrammarForSmoke() {
+      return wlDecks.firstShard('junior_3500')[0]
+    }
+  }
+
+  /* ---- [俄语 S2/S2.5 拆分 + 前端录音评分] 静态契约 ---- */
+  const wlTypesSrc = fs.readFileSync(path.join(root, 'src/wordLabTypes.ts'), 'utf8')
+  assert(/'guess' \| 'verify' \| 'readaloud' \| 'spell' \| 'summary'/.test(wlTypesSrc),
+    'SessionStep 含独立 readaloud 步骤（俄语 S2.5），英语仍走 verify 同屏旧链路')
+  assert(wsCompiledSrc.includes("commit({ ...record }, 'readaloud')")
+    && wsCompiledSrc.includes("draft.step === 'readaloud'")
+    && wsCompiledSrc.includes('<PronunciationStep') && wsCompiledSrc.includes('data-testid="ru-go-readaloud"'),
+  'WordSession：S2 底部「下一步：跟读练习」推进到 readaloud，独立渲染评分组件')
+  assert(wsCompiledSrc.includes("draft.step === 'verify' && !isRuStep")
+    && wsCompiledSrc.includes('const isRuStep = entry?.language ==='),
+  '英语 verify 同屏 WordReadAloud 保留（!isRuStep），俄语不显示，双链路隔离')
+  // 英语五步三条提交路径冻结断言（与本轮无关，确保仍逐字在）
+  assert(wsCompiledSrc.includes('const commit = (next: StepRecord')
+    && wsCompiledSrc.includes("commit(next, 'verify')")
+    && wsCompiledSrc.includes("commit({ ...record }, 'spell')")
+    && wsCompiledSrc.includes("advance({ ...record, spellingTries: tries, spellingPassed: true"),
+  '拆分后英语五步三条提交路径源码字面量仍逐字不变（冻结断言不破）')
+  const pronStepSrc = fs.readFileSync(path.join(root, 'src/components/PronunciationStep.tsx'), 'utf8')
+  assert(pronStepSrc.includes('data-testid="ru-readaloud-ru"')
+    && pronStepSrc.includes('data-testid="ru-readaloud-cn"')
+    && !pronStepSrc.includes('RussianGrammarCard') && !pronStepSrc.includes('六格'),
+  'S2.5 独立页顶部显示中俄原句，且绝不显示变格表（任务一要求）')
+  assert(pronStepSrc.includes('data-testid="ru-play-original"')
+    && pronStepSrc.includes('播放原音') && pronStepSrc.includes("app.notify('当前设备未安装俄语语音包"),
+  '播放原音按钮：ru-RU TTS，无语音包给 toast 提示')
+  assert(pronStepSrc.includes("startRecording({") && pronStepSrc.includes('data-testid="ru-rec-start"')
+    && pronStepSrc.includes('data-testid="ru-rec-stop"') && pronStepSrc.includes('data-testid="ru-rec-dot"')
+    && pronStepSrc.includes('animate-pulse') && !/setTimeout[\s\S]{0,80}stop\(\)/.test(pronStepSrc),
+  '录音：MediaRecorder 手动模式（开始/停止按钮 + 红点闪烁），无自动停止定时器')
+  assert(pronStepSrc.includes('assessRecording(blob') && pronStepSrc.includes('analyzePcm')
+    && !pronStepSrc.includes('fetch(') && !pronStepSrc.includes('/.netlify/functions/'),
+  '评分纯前端：录音 Blob → assessRecording(Web Audio/PCM)，零后端请求')
+  assert(pronStepSrc.includes('data-testid="ru-score-card"')
+    && ['ru-score-pace', 'ru-score-fluency', 'ru-score-overall', 'ru-score-retry', 'ru-score-next']
+      .every((t) => pronStepSrc.includes(`data-testid="${t}"`))
+    && pronStepSrc.includes('语速') && pronStepSrc.includes('流畅度') && pronStepSrc.includes('参考评分'),
+  '评分结果卡：语速/流畅度/参考分三维度 + 重录 + 完成下一步按钮')
+  assert(pronStepSrc.includes("phase === 'degraded'")
+    && pronStepSrc.includes('data-testid="ru-readaloud-degraded"')
+    && pronStepSrc.includes('我已大声朗读，直接进入下一步'),
+  '无麦/拒绝权限降级：隐藏录音按钮，替换为「我已大声朗读，直接进入下一步」')
+
+  /* ---- 运行时：真挂载 PronunciationStep，验证 S2.5 独立页可见元素 ---- */
+  {
+    const STEP_ENTRY = `
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { AppProvider } from './src/store/useAppStore.tsx'
+import { PronunciationStep } from './src/components/PronunciationStep.tsx'
+window.__mountStep = (el, entry) => {
+  const r = createRoot(el)
+  r.render(React.createElement(AppProvider, null,
+    React.createElement(PronunciationStep, {
+      entry,
+      settings: { apiMode: 'mock', rate: 1, accent: 'en-US', autoSpeak: false, wordAutoPlayAudio: false, wordReadAloudExpanded: true },
+      sentence: entry.examples[0],
+      onContinue: () => {},
+    })))
+  return () => r.unmount()
+}
+`
+    const stepOut = await build({
+      stdin: { contents: STEP_ENTRY, resolveDir: root, loader: 'tsx' },
+      bundle: true, format: 'iife', platform: 'browser', jsx: 'automatic', write: false,
+      define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
+    })
+    const stepVc = new VirtualConsole()
+    const stepErrors = []
+    stepVc.on('jsdomError', (e) => stepErrors.push(e.message))
+    stepVc.on('error', () => {})
+    const stepDom = new JSDOM('<!doctype html><html><body><div id="step"></div></body></html>',
+      { url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: stepVc })
+    const sw = stepDom.window
+    if (typeof sw.structuredClone !== 'function') sw.structuredClone = (v) => globalThis.structuredClone(v)
+    if (!sw.crypto) sw.crypto = {}
+    if (typeof sw.crypto.randomUUID !== 'function') sw.crypto.randomUUID = () => 'step-uuid-' + Math.random().toString(16).slice(2)
+    sw.eval(stepOut.outputFiles[0].text)
+    const stepEl = sw.document.getElementById('step')
+    sw.__mountStep(stepEl, wlDecks.firstShard('ru_a1')[0])
+    await tick(180)
+    const stepText = stepEl.textContent
+    assert(stepText.includes('跟读评分 · S2.5') && stepText.includes('录音参考评分') === false,
+      '运行时：S2.5 独立页初始态标题正确、无评分结果（评分只在录音后出现）')
+    assert(!!stepEl.querySelector('[data-testid="ru-readaloud-ru"]')
+      && stepEl.querySelector('[data-testid="ru-readaloud-ru"]').textContent.includes(wlDecks.firstShard('ru_a1')[0].examples[0]),
+    '运行时：顶部带重音俄语原句真实可见')
+    assert(stepEl.querySelector('[data-testid="ru-readaloud-cn"]').textContent === wlDecks.firstShard('ru_a1')[0].examples[1],
+    '运行时：中文翻译原句真实可见')
+    assert(!stepEl.querySelector('[data-testid="ru-grammar-card"]')
+      && !stepText.includes('变格'),
+    '运行时：S2.5 独立页零变格表（彻底拆分，页面干净）')
+    assert(!!stepEl.querySelector('[data-testid="ru-play-original"]'),
+      '运行时：播放原音按钮存在')
+    // jsdom 无 MediaRecorder → recordingSupported()=false → 初始即降级态
+    assert(!!stepEl.querySelector('[data-testid="ru-readaloud-degraded"]')
+      && !stepEl.querySelector('[data-testid="ru-rec-start"]')
+      && stepText.includes('我已大声朗读，直接进入下一步'),
+    '运行时：无麦克风环境自动降级，隐藏开始录音、显示直接进入下一步')
+    assert(stepErrors.length === 0, 'PronunciationStep 独立挂载零 jsdom 错误')
+    stepDom.window.close()
+  }
+
   /* ---- 艾宾浩斯阶梯 + 现有 SM-2 统一调度（验收 4） ---- */
   assert(JSON.stringify(wlTypes.EBBINGHAUS_STEPS_MS) === JSON.stringify([
     10 * 60 * 1000, DAY_MS, 3 * DAY_MS, 7 * DAY_MS, 15 * DAY_MS, 30 * DAY_MS,
@@ -1876,6 +2137,41 @@ try {
   assert(!bodyText().includes('每个新词都走一遍完整闭环')
     && !bodyText().includes('10min→1d→3d→7d→15d→30d'),
   '五步学习法声明已移出词场首屏（S0–S5 流程逻辑不受影响）')
+
+  /* ---- [多语言] 运行时：语言切换入口 / 俄语可切 / 日法置灰 / 切回英语 ---- */
+  assert(!!document.querySelector('[data-testid="wordlab-language-entry"]'),
+    '运行时：词场首页右上角出现「🌐 更多语言」入口')
+  fire(document.querySelector('[data-testid="wordlab-language-entry"]'))
+  await tick(120)
+  assert(!!document.querySelector('[data-testid="wordlab-language-sheet"]')
+    && !!document.querySelector('[data-testid="wordlab-lang-en"]')
+    && !!document.querySelector('[data-testid="wordlab-lang-ru"]'),
+  '运行时：语言面板打开，列出英语（默认）/ 俄语')
+  assert(document.querySelectorAll('[data-testid^="wordlab-lang-soon-"]').length === 2
+    && bodyText().includes('敬请期待'),
+  '运行时：日语 / 法语显示「敬请期待」且不可点击（置灰）')
+  fire(document.querySelector('[data-testid="wordlab-lang-ru"]'))
+  await tick(150)
+  assert(JSON.parse(w.localStorage.getItem('lingua_settings') || '{}').wordLanguage === 'ru'
+    && !document.querySelector('[data-testid="wordlab-language-sheet"]'),
+  '运行时：切到俄语后 settings.wordLanguage=ru 持久化，面板关闭，不新增 localStorage 键')
+  // 切到俄语后进选库页应看到俄语词库
+  fire([...document.querySelectorAll('button')].find((b) => /换词库|去挑词库/.test(b.textContent || '')))
+  await tick(160)
+  assert(!!document.querySelector('[data-testid="russian-decks"]')
+    && !!document.querySelector('[data-testid="russian-deck-ru_a1"]')
+    && !!document.querySelector('[data-testid="russian-deck-ru_a2"]'),
+  '运行时：俄语态选库页展示俄语 A1/A2 词库（词库卡片完全替换）')
+  // 切回英语，恢复后续断言的初始态
+  fire([...document.querySelectorAll('button')].find((b) => /返回词场首页/.test(b.textContent || '')))
+  await tick(150)
+  fire(document.querySelector('[data-testid="wordlab-language-entry"]'))
+  await tick(100)
+  fire(document.querySelector('[data-testid="wordlab-lang-en"]'))
+  await tick(150)
+  assert(JSON.parse(w.localStorage.getItem('lingua_settings') || '{}').wordLanguage === 'en',
+    '运行时：切回英语，原有 7 库流程继续（语言可双向切换）')
+
   click(/去挑词库/, '首页进入词库选择页')
   await tick(180)
   for (const name of ['初中 3500', '高中 5000', '四级核心', '六级核心', '雅思 5.5', '雅思 6.5', '雅思 7.5']) {
@@ -2804,8 +3100,8 @@ try {
 
   /* ---- 验收 5：接入既有 Word Lab / Dialogue / 成长系统 ---- */
   assert(wlDecks.DECK_IDS.length === 7 && wlDecks.CHINA_DECK_IDS.length === 2
-    && wlDecks.ALL_DECK_IDS.length === 9,
-  '原有 7 个分级词库保持不变，并列注册 2 个 china_track 场景词包')
+    && wlDecks.RUSSIAN_DECK_IDS_ALL.length === 2 && wlDecks.ALL_DECK_IDS.length === 11,
+  '原有 7 个分级词库保持不变，并列注册 2 个 china_track 词包 + 2 个俄语词库（全量 11）')
   assert(wlDecks.DECK_META.chinglish_fix.source === 'china_track'
     && wlDecks.DECK_META.speaking_core.source === 'china_track',
   '两个场景词包标记 source: china_track')
@@ -7264,7 +7560,7 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 首页场景库（40 场景·生活/职场/学术/旅行四类·等级 Tab 下划线高亮·挑战模式提示·任意等级零拦截直接进对话·两个文字入口·输入框主体不变·不新增存储键）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏）/ 大文本存储迁移（IndexedDB 双表·索引/正文分离·字数与 CEFR 派生指标保留·迁移幂等·端到端零丢失·31 键契约不变）/ 内容扩充（书架 129 本公版书元数据·难度/主题筛选·每页 20 分页·古登堡搜索不编 ID / 文化 50+55=105 条合规视频·playlist-only 零编造 / 电影 10 部 JSON·预告片纯净化（移除全片跳转）·2 部真实 BV 号应用内 iframe 播放·3s 超时/空源/onError 降级海报·无盗版无网盘·动态 import 不进 31 键） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ 词场多语言（俄语 ТРКИ A1/A2·重音/性别/双语例句契约·language 排程标记隔离·settings.wordLanguage 持久化不新增键·ru-RU 发音与缺包提示·33 字母软键盘·语言切换面板与词库替换·名词六格变格数据·S2 性别Badge与变格折叠卡·S2.5 西里尔原句保真显示与中俄对照修复·俄语 S2/S2.5 步骤拆分（独立 readaloud step·S2 精简无变格表·S2.5 独立录音评分页·MediaRecorder 手动录音红点正计时·VoiceAssessmentAgent 纯前端 PCM 评分三维度·重录/完成·无麦降级））/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 首页场景库（40 场景·生活/职场/学术/旅行四类·等级 Tab 下划线高亮·挑战模式提示·任意等级零拦截直接进对话·两个文字入口·输入框主体不变·不新增存储键）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏）/ 大文本存储迁移（IndexedDB 双表·索引/正文分离·字数与 CEFR 派生指标保留·迁移幂等·端到端零丢失·31 键契约不变）/ 内容扩充（书架 129 本公版书元数据·难度/主题筛选·每页 20 分页·古登堡搜索不编 ID / 文化 50+55=105 条合规视频·playlist-only 零编造 / 电影 10 部 JSON·预告片纯净化（移除全片跳转）·2 部真实 BV 号应用内 iframe 播放·3s 超时/空源/onError 降级海报·无盗版无网盘·动态 import 不进 31 键） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

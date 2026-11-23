@@ -134,18 +134,35 @@ export function forceReleaseMic(): void {
   micActive = false
 }
 
-export function speak(text: string, settings: Pick<Settings, 'rate' | 'accent' | 'autoSpeak'>): void {
+/**
+ * [多语言] 指定语种是否有可用 voice（如 ru-RU）。
+ * 英语场景不受影响；俄语设备未装语音包时 UI 可据此给出提示。
+ */
+export function hasVoiceForLang(lang: string): boolean {
+  if (!speechSupported()) return false
+  try {
+    return window.speechSynthesis.getVoices().some((v) => (v.lang || '').replace('_', '-') === lang)
+  } catch { return false }
+}
+
+export function speak(
+  text: string,
+  settings: Pick<Settings, 'rate' | 'accent' | 'autoSpeak'>,
+  /** [多语言] 可选语种；不传 = 沿用 settings.accent（英语口音），旧调用点零改动 */
+  lang?: string,
+): void {
   if (!speechSupported() || !text) return
   // 麦克风正在占用时绝不发声，避免把 AI 的声音录回自己耳朵
   if (!canSpeakNow()) return
   try {
     window.speechSynthesis.cancel()
     const u = new SpeechSynthesisUtterance(text)
-    u.lang = settings.accent
+    const targetLang = lang ?? settings.accent
+    u.lang = targetLang
     u.rate = settings.rate
     u.pitch = 1.02
     const voices = window.speechSynthesis.getVoices()
-    const match = voices.find((v) => v.lang?.replace('_', '-') === settings.accent)
+    const match = voices.find((v) => v.lang?.replace('_', '-') === targetLang)
     if (match) u.voice = match
     window.speechSynthesis.speak(u)
   } catch (err) {
@@ -304,8 +321,13 @@ export function speakWithVoice(text: string, opts: SpeakOptions = {}): SpeakSess
     }
 
     /** [TTS 修复] 指定的 voiceURI 在当前设备不存在时回退到第一个英语音色，
-     *  而不是留空让浏览器用系统默认语种念英文（也是一类静默失败）。 */
+     *  而不是留空让浏览器用系统默认语种念英文（也是一类静默失败）。
+     *  [多语言] 若 opts.lang 明确指定非英语语种（如 ru-RU），优先匹配该语种音色，
+     *  英语默认路径（无 lang 或 lang 为 en-*）一字不变。 */
+    const wantLang = opts.lang
+    const isNonEnglishLang = wantLang && !/^en/i.test(wantLang)
     const target = (opts.voiceURI && voices.find((v) => v.voiceURI === opts.voiceURI))
+      || (isNonEnglishLang && voices.find((v) => (v.lang || '').replace('_', '-') === wantLang))
       || voices.find((v) => /^en/i.test(v.lang || ''))
       || voices[0]
 
