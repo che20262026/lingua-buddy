@@ -133,8 +133,19 @@ const RU_A2_SEEDS: RussianWordSeed[] = [
  * - examples[0]=exampleRu（S1/S2 展示俄语例句）、examples[1]=exampleCn；
  * - meaningZh=meaning（中文释义）、pos 拼上 gender（俄语性数信息不丢）、cefr=level。
  */
+/**
+ * [й/и 识别 Bug 修复] 只剥「重音符号」（U+0301 acute 等），必须保留 U+0306 短音符。
+ * 原因：й 的 NFD 分解 = и(U+0438) + 短音符(U+0306)，而 U+0306 落在 \u0300-\u036f 区间。
+ * 旧实现无条件剥离该区间 → й 被误抹成 и，答案词从源头就错了（S3 永远判「й 写成 и」）。
+ * 这里先把短音符保护成占位符，剥完重音再还原，最后统一回 NFC。
+ */
+const BREVE = '\u0306'
 function stripStress(word: string): string {
-  return word.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return word.normalize('NFD')
+    .replace(new RegExp(BREVE, 'g'), '\u0000')       // 保护 й 的短音符
+    .replace(/[\u0300-\u036f]/g, '')                  // 只去掉真正的重音
+    .replace(/\u0000/g, BREVE)                        // 还原短音符
+    .normalize('NFC')                                 // и+ breve 合回预组合 й
 }
 
 function toWordEntry(seed: RussianWordSeed, deck: RussianDeckId): WordEntry {

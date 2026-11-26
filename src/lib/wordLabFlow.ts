@@ -80,18 +80,56 @@ export function buildChoices(entry: WordEntry, deckId: DeckId): string[] {
 /** S3 打字模式：逐字母比对。cells 里只放用户自己输入的字母，不回显答案 */
 export interface SpellingCell { ch: string; ok: boolean }
 
+/**
+ * [俄语 й/и 修复] 输入法/点击拼凑的统一归一化：
+ * - NFC：把「и + 组合短音符 U+0306」合成预组合 й，消除组合字符导致的假性错误；
+ * - toLowerCase：输入法误开大写时统一小写；
+ * - trim：过滤首尾空格。
+ * 英语词条用的是纯 ASCII，三步对它们都是恒等操作，行为零变化。
+ */
+export function normalizeSpelling(s: string): string {
+  return s.normalize('NFC').toLowerCase().trim()
+}
+
 export function compareSpelling(target: string, input: string): {
   correct: boolean
   cells: SpellingCell[]
 } {
-  const t = target.toLowerCase().trim()
-  const i = input.toLowerCase().trim()
+  const t = normalizeSpelling(target)
+  const i = normalizeSpelling(input)
   const cells: SpellingCell[] = []
   const len = Math.max(t.length, i.length)
   for (let k = 0; k < len; k++) {
     cells.push({ ch: k < i.length ? i[k] : '·', ok: t[k] === i[k] })
   }
   return { correct: t === i, cells }
+}
+
+/**
+ * [俄语 й/и 易混淆提示] 仅当「归一化后标准答案与用户输入长度一致、
+ * 且每一处差异都是 и(U+0438) ↔ й(U+0439) 互换」时才返回提示，否则 null。
+ * 严格限定条件，避免把真正拼错多个字母的情况误导成「只是短音符错了」。
+ */
+export interface ConfusableHint {
+  /** 用户实际输入的字母 */
+  from: string
+  /** 标准答案里正确的字母 */
+  to: string
+  /** 首个差异位的下标（0 起） */
+  index: number
+}
+export function yiConfusion(target: string, input: string): ConfusableHint | null {
+  const t = normalizeSpelling(target)
+  const i = normalizeSpelling(input)
+  if (t === i || t.length !== i.length) return null
+  let hint: ConfusableHint | null = null
+  for (let k = 0; k < t.length; k++) {
+    if (t[k] === i[k]) continue
+    const pair = `${t[k]}${i[k]}`
+    if (pair !== 'йи' && pair !== 'ий') return null // 存在非 и/й 差异 → 不提示
+    if (!hint) hint = { from: i[k], to: t[k], index: k }
+  }
+  return hint
 }
 
 /**

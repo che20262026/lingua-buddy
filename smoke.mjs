@@ -1698,6 +1698,88 @@ window.__mountStep = (el, entry) => {
     && !spellBad.correct && spellBad.cells[5].ok === false,
   'S3 打字模式逐字母比对并标出错误字母')
 
+  /* ---- [俄语 й/и 修复] NFC 归一 / 输入法容错 / 易混淆提示 / 词库源头 ---- */
+  const BR = '\u0306' // 组合短音符
+  assert(typeof wlFlow.normalizeSpelling === 'function'
+    && wlFlow.normalizeSpelling('  ВОДА ') === 'вода',
+  '拼写归一化：NFC + 小写 + 去首尾空格（输入法大写/空格容错）')
+  assert(wlFlow.compareSpelling('й', `и${BR}`).correct,
+    'NFC 消除组合字符假性错误：и+短音符 归一后 = 预组合 й，不再误判')
+  const yiWrong = wlFlow.yiConfusion('й', 'и')
+  assert(yiWrong && yiWrong.from === 'и' && yiWrong.to === 'й' && yiWrong.index === 0,
+    '输错 й 写成 и：识别为 и→й 混淆并给出位置')
+  const iyWrong = wlFlow.yiConfusion('и', 'й')
+  assert(iyWrong && iyWrong.from === 'й' && iyWrong.to === 'и',
+    '反向混淆（标准 и 写成 й）同样识别，不误报为其它错误')
+  assert(wlFlow.yiConfusion('вода', 'воды') === null
+    && wlFlow.yiConfusion('think', 'thunk') === null
+    && wlFlow.yiConfusion('й', 'й') === null,
+  '多字母真错 / 英语词 / 拼对 都不触发 и↔й 提示（严格限定，避免误导）')
+  assert(wlFlow.compareSpelling('вода', '  ВОДА  ').correct,
+    '输入法大写 + 首尾空格容错：归一化后判正确')
+  // 词库源头：stripStress 必须保护 й 的短音符（否则答案词被抹成 и）
+  const ruSrc = fs.readFileSync(path.join(root, 'src/data/wordDecks/russianDecks.ts'), 'utf8')
+  assert(ruSrc.includes('const BREVE') && ruSrc.includes("replace(new RegExp(BREVE, 'g'), '\\u0000')")
+    && ruSrc.includes(".normalize('NFC')"),
+  '词库 stripStress 保护 U+0306 短音符并回 NFC：й 不再被抹成 и（源头修复）')
+  // UI 契约：红色提示 + 键盘 и/й 视觉分离
+  const wsYiSrc = fs.readFileSync(path.join(root, 'src/pages/WordSession.tsx'), 'utf8')
+  assert(wsYiSrc.includes('data-testid="ru-yi-hint"')
+    && wsYiSrc.includes('但正确的字母是带短音符的')
+    && wsYiSrc.includes('yiConfusion(entry.word, spellInput)'),
+  'S3 判错后仅 и↔й 混淆给红色明确提示（data-testid + 短音符文案）')
+  assert(wsYiSrc.includes('data-testid={isShortI ?')
+    && wsYiSrc.includes('输入 й（带短音符的伊）')
+    && wsYiSrc.includes('bg-sun-100') && wsYiSrc.includes('rounded-full bg-sun-500'),
+  '软键盘：й 高亮底 + 小圆点 + 明确 aria-label，与 и 视觉分离防点错')
+
+  /* ---- [词场间距收拢] 舞台 padding 与词卡垂直留白紧凑化 ---- */
+  const wlCss = fs.readFileSync(path.join(root, 'src/index.css'), 'utf8')
+  const stageBlock = (wlCss.match(/\.wl-stage \{[\s\S]*?\}/) || [''])[0]
+  assert(stageBlock.includes('padding: 0.75rem 0.75rem 4.5rem')
+    && !/padding:\s*1\.25rem/.test(stageBlock),
+  '词场舞台 padding 从 1.25rem/6rem 收拢到 0.75rem/4.5rem（首屏核心按钮可见）')
+  assert(wsYiSrc.includes('mx-auto mt-3 max-w-[600px] rounded-[28px] px-5 py-4')
+    && wsYiSrc.includes('mx-auto mt-3 max-w-[600px] py-4 text-center')
+    && !/mx-auto mt-5/.test(wsYiSrc)
+    && !/py-7/.test(wsYiSrc),
+  'S1/S2/S3 词卡 mt-5→mt-3、py-7/py-6→py-4，核心操作区更靠上')
+
+  /* ---- [S3 体验优化] 保留输入 / 自动聚焦 / 三次错误展示答案 ---- */
+  assert(wsYiSrc.includes('const [errorCount, setErrorCount] = useState(0)')
+    && wsYiSrc.includes('const [showAnswer, setShowAnswer] = useState(false)')
+    && wsYiSrc.includes('spellRef = useRef<HTMLInputElement | null>(null)'),
+  'S3 新增 errorCount / showAnswer 局部状态与 spellRef（换词重置，不落 localStorage）')
+  assert(wsYiSrc.includes('const nextErrorCount = errorCount + 1')
+    && wsYiSrc.includes('setErrorCount(nextErrorCount)')
+    && wsYiSrc.includes('const reveal = nextErrorCount >= 3'),
+  '每次错误 errorCount+1，第 3 次触发展示答案（防卡死）')
+  assert(wsYiSrc.includes('disabled={showAnswer}') && wsYiSrc.includes('data-testid="spell-answer-reveal"')
+    && wsYiSrc.includes('data-testid="spell-answer-word"') && wsYiSrc.includes('text-xl font-black text-emerald-700'),
+  '三次错误：输入框 disabled + 绿色大字号展示正确答案')
+  assert(wsYiSrc.includes('data-testid="spell-next-after-answer"')
+    && wsYiSrc.includes('proceedAfterAnswer') && wsYiSrc.includes('spellingPassed: false'),
+  '提交按钮替换为「下一步」并放行，诚实记为 spellingPassed:false（进易错本）')
+  assert(wsYiSrc.includes('data-testid="spell-error-hint"')
+    && wsYiSrc.includes('拼写有误，再试一次吧') && wsYiSrc.includes('min-h-[40px]'),
+  '错误温柔提示 + 固定高度占位（不抖动）')
+  assert(wsYiSrc.includes('spellRef.current?.focus()')
+    && !/\bdraft\.step\s*=/.test(wsYiSrc.split('const submitSpelling')[1]?.split('const retrySpelling')[0] || ''),
+  '错误后输入框自动聚焦便于局部退格修改，且不新增步骤')
+  // 关键回归护栏：提交按钮不再因 cells 存在而锁死（这是「必须清空重来」的旧病根）
+  const submitIdx = wsYiSrc.indexOf('spell-submit')
+  const submitBtnBlock = submitIdx >= 0 ? wsYiSrc.slice(Math.max(0, submitIdx - 160), submitIdx + 80) : ''
+  assert(submitBtnBlock.includes('disabled={!spellInput.trim()}')
+    && !submitBtnBlock.includes('!!cells'),
+  '错误后提交按钮只校验非空、不再被 cells 锁死：可直接修改输入后重提')
+  assert(wsYiSrc.includes('setCells(null)') && !/setSpellInput\(''\)/.test(
+    wsYiSrc.split('const retrySpelling')[1]?.split('const finish')[0] || ''),
+  '重拼保留已输入字母（不清 spellInput），只清错误标注')
+  // NFC + toLowerCase 仍保留（沿用上一轮修复，确认未被本轮破坏）
+  assert(wsYiSrc.includes('yiConfusion(entry.word, spellInput)')
+    && wlFlow.normalizeSpelling('  ВОДА ') === 'вода',
+  '比对仍走 NFC + 小写归一化，й/и 判定不受本轮影响')
+
   /* ---- 书写阶段遮蔽：maskTargetWord + 兜底图 hideWord（本轮增量） ---- */
   assert(wlFlow.maskTargetWord('A large proportion of students cycle.', 'proportion')
     === 'A large ____ of students cycle.', '书写遮蔽：英释/例句里出现的整词替换为 ____')
@@ -2306,8 +2388,20 @@ window.__mountStep = (el, entry) => {
       await tick(150)
       assert(bodyText().includes('逐字母比对') && bodyText().includes('重拼一次'),
         'S3 拼错时逐字母标红并强制重拼')
-      click(/重拼一次/, '清空重拼')
+      /* [S3 体验优化] 错误后输入保留、提交按钮不锁死、温柔提示 + 自动聚焦 */
+      const retained = document.querySelector('[data-testid="spell-input"]')
+      assert(retained && retained.value === `${wKey}x`,
+        '运行时：拼错后输入框保留错误输入（不清空，供局部退格修改）')
+      assert(buttons().some((b) => /提交拼写/.test(b.textContent || '') && !b.disabled),
+        '运行时：拼错后「提交拼写」仍可点（不再被 cells 锁死）')
+      assert(!!document.querySelector('[data-testid="spell-error-hint"]')
+        && bodyText().includes('拼写有误，再试一次吧'),
+        '运行时：错误后显示温柔提示（第 1/3 次）')
+      click(/重拼一次/, '清除标注重拼')
       await tick(120)
+      const afterRetry = document.querySelector('[data-testid="spell-input"]')
+      assert(afterRetry && afterRetry.value === `${wKey}x`,
+        '运行时：点「重拼一次」后保留已输入字母，只清错误标注')
 
       /* 书写阶段遮蔽：打字与手写两种模式都看不到词形（含配图与提示文案） */
       const wordRe = new RegExp(`\\b${wKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
@@ -7303,6 +7397,49 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     }
   }
 
+  /* ============ [查询 Query] 运行时：首页入口 → 三 Tab → 词典检索 → 返回 ============ */
+  {
+    clickExact('学习', 'Query 测试前回到学习页')
+    await tick(120)
+    const qEntry = document.querySelector('[data-testid="home-query-entry"]')
+    assert(!!qEntry, '运行时：首页出现「查询工具」独立入口')
+    fire(qEntry)
+    await tick(140)
+    assert(!!document.querySelector('[data-testid="query-page"]'),
+      '运行时：点入口进入查询页（纯 state 机 navigate，无路由库）')
+    assert(!!document.querySelector('[data-testid="query-lang-badge"]')
+      && ['query-tab-media', 'query-tab-ocr', 'query-tab-dict'].every(
+        (id) => !!document.querySelector(`[data-testid="${id}"]`)),
+    '运行时：查询页显示语言徽标与三个 Tab')
+    // 三个 Tab 切换：媒体 → OCR → 词典
+    fire(document.querySelector('[data-testid="query-tab-ocr"]'))
+    await tick(80)
+    assert(!!document.querySelector('[data-testid="query-ocr-input"]')
+      && !!document.querySelector('[data-testid="query-ocr-camera"]')
+      && !!document.querySelector('[data-testid="query-ocr-analyze"]'),
+    '运行时：拍照解析 Tab 含大输入框 / 拍照 / AI 解析按钮')
+    fire(document.querySelector('[data-testid="query-tab-dict"]'))
+    await tick(80)
+    assert(!!document.querySelector('[data-testid="query-dict-search"]')
+      && !!document.querySelector('[data-testid="query-dict-pack-en_core"]')
+      && !!document.querySelector('[data-testid="query-dict-pack-ru_basic"]'),
+    '运行时：离线词典 Tab 含搜索框与英/俄两个词典包')
+    // 内置词条实时检索（无需下载，bundle 内置）；按当前全局语言选一个确定存在的词
+    const qLangRu = /俄语/.test(document.querySelector('[data-testid="query-lang-badge"]')?.textContent || '')
+    const probeWord = qLangRu ? 'вода' : 'ability'
+    const dictInput = document.querySelector('[data-testid="query-dict-search"]')
+    const dSetter = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set
+    dSetter.call(dictInput, probeWord)
+    dictInput.dispatchEvent(new w.Event('input', { bubbles: true }))
+    await tick(90)
+    assert((document.querySelectorAll('[data-testid="query-dict-hit"]').length > 0),
+      `运行时：输入 ${probeWord} 从内置词典检索出结果`)
+    // 返回首页，不给后续断言留状态污染
+    clickExact('学习', 'Query 测试后回到学习页')
+    await tick(100)
+    assert(bodyText().includes('把一段英文'), '运行时：查询页返回后首页正常')
+  }
+
   /* ============ 大文本存储迁移：IndexedDB 索引/正文分离（纯函数 + 降级端到端） ============ */
   const bigDbMod = await loadModule('src/lib/db.ts', 'bigdb')
   const bigTextMod = await loadModule('src/lib/bigText.ts', 'bigtext')
@@ -7558,9 +7695,84 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
   assert(!/localStorage\.|setItem\(|\.setItem|KEYS\./.test(expandedSrc),
   '三个扩展目录纯静态数据，不读写任何 localStorage 键')
 
+  /* ============ [查询 Query] 独立模块：路由 / 三 Tab / 独立词典库 / 语言联动 ============ */
+  const queryTypesSrc = stripComments(fs.readFileSync(path.join(root, 'src/types.ts'), 'utf8'))
+  const queryAppSrc = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8')
+  const queryHomeSrc = fs.readFileSync(path.join(root, 'src/pages/Home.tsx'), 'utf8')
+  const queryPageSrc = fs.readFileSync(path.join(root, 'src/pages/Query.tsx'), 'utf8')
+  const queryNavSrc = fs.readFileSync(path.join(root, 'src/components/Layout.tsx'), 'utf8')
+  assert(queryTypesSrc.includes("| 'query'")
+    && queryAppSrc.includes("import { Query } from './pages/Query'")
+    && queryAppSrc.includes('query: <Query />'),
+  '查询模块接入 state 机：View 加 query + App PAGES 接线')
+  assert(queryHomeSrc.includes('data-testid="home-query-entry"')
+    && queryHomeSrc.includes("navigate('query')"),
+  '首页提供查询工具入口，navigate(query) 进入（不新增底部导航项）')
+  assert(/const NAV[\s\S]*?\{ view: 'home'[\s\S]*?view: 'settings'[\s\S]*?\]/.test(queryNavSrc)
+    && !/view: 'query'/.test(queryNavSrc.match(/const NAV[\s\S]*?\]/)?.[0] || '')
+    && queryNavSrc.includes("const QUERY_VIEWS: View[] = ['query']"),
+  '底部导航仍是 7 项（query 不进 NAV），只加入「学习」高亮分组')
+  assert(queryPageSrc.includes('data-testid={`query-tab-${t.id}`}')
+    && ['media', 'ocr', 'dict'].every((id) => queryPageSrc.includes(`id: '${id}'`)),
+  '查询页三 Tab 齐备（模板 testid + TABS 三项定义）')
+  // 逐文件确认三个 Tab 子组件的关键 testid
+  const mediaSrc = fs.readFileSync(path.join(root, 'src/components/query/MediaTranslator.tsx'), 'utf8')
+  const ocrSrc = fs.readFileSync(path.join(root, 'src/components/query/OCRTranslator.tsx'), 'utf8')
+  const dictSrc = fs.readFileSync(path.join(root, 'src/components/query/OfflineDict.tsx'), 'utf8')
+  assert(mediaSrc.includes('data-testid="query-media-dropzone"')
+    && mediaSrc.includes('transcribeAudioBlob')
+    && mediaSrc.includes('askQueryAi')
+    && /VIDEO_EXT/.test(mediaSrc) && mediaSrc.includes('ffmpeg')
+    && mediaSrc.includes('data-testid="query-copy-result"'),
+  '音视频 Tab：拖拽区 + ASR 转写 + chat 翻译 + 视频抽音轨降级提示 + 一键复制')
+  const cameraHookSrc = fs.readFileSync(path.join(root, 'src/hooks/useCameraCapture.ts'), 'utf8')
+  assert(ocrSrc.includes('data-testid="query-ocr-camera"')
+    && cameraHookSrc.includes('getUserMedia')
+    && cameraHookSrc.includes("facingMode: 'environment'")
+    && ocrSrc.includes('data-testid="query-camera-fallback"')
+    && ocrSrc.includes('analysisSystemPrompt')
+    && ocrSrc.includes('拍照识别'),
+  'OCR Tab：大输入框 + 拍照按钮（后置摄像头 Hook）+ 权限拒绝降级 UI + AI 结构化解析')
+  assert(dictSrc.includes('data-testid="query-dict-search"')
+    && dictSrc.includes('downloadPack') && dictSrc.includes('listDownloadedPacks')
+    && dictSrc.includes("lang === 'ru' ? 'ru-RU' : 'en-US'")
+    && dictSrc.includes('hasVoiceForLang'),
+  '词典 Tab：IndexedDB 下载/持久化 + 实时检索 + 按语言切换 TTS 与缺包提示')
+
+  // 独立词典库：独立库名 / 不加 localStorage 键 / 检索纯函数正确
+  const qDictDb = await loadModule('src/lib/dictionaryDb.ts', 'qdict')
+  const qDictData = await loadModule('src/data/queryDictionaries.ts', 'qdictdata')
+  assert(qDictDb.DICT_DB_NAME === 'lingua_query_store' && qDictDb.DICT_DB_VERSION === 1
+    && qDictDb.DICT_STORE === 'dict_packs'
+    && !/localStorage|\bKEYS\b/.test(stripComments(fs.readFileSync(path.join(root, 'src/lib/dictionaryDb.ts'), 'utf8'))),
+  '词典用独立 IndexedDB 库（lingua_query_store v1），零 localStorage 键，不碰主库 DB_VERSION===1')
+  assert(qDictData.QUERY_DICT_PACKS.length === 2
+    && qDictData.QUERY_DICT_PACKS.some((p) => p.id === 'en_core')
+    && qDictData.QUERY_DICT_PACKS.some((p) => p.id === 'ru_basic')
+    && qDictData.QUERY_DICT_PACKS.every((p) => p.entries.length > 10
+      && p.entries.every((e) => e.w && e.pos && e.meaning)),
+  '内置英/俄两个词典包，词条含词形/词性/释义')
+  // 检索：精确 > 前缀 > 包含；й 的短音符不被 stripStress 误伤
+  const enEntries = qDictData.builtinPack('en_core').entries
+  const ruEntries = qDictData.builtinPack('ru_basic').entries
+  assert(qDictDb.searchEntries(enEntries, 'ability')[0]?.w === 'ability'
+    && qDictDb.searchEntries(enEntries, 'ab').some((h) => h.w.startsWith('ab'))
+    && qDictDb.searchEntries(enEntries, '放弃').some((h) => h.w === 'abandon'),
+  '词典检索支持精确 / 前缀 / 中文释义匹配')
+  assert(qDictDb.foldWord('во́да') === 'вода' && qDictDb.foldWord('музе́й') === 'музей'
+    && qDictDb.searchEntries(ruEntries, 'вода').length > 0,
+  '词典去重音保留 й 的短音符：музей 不退化成 музеи，俄语检索可用')
+  // 全局语言联动：OCR 语言 / 翻译 prompt / TTS 语种三处都按 wordLanguage 切换
+  const queryAiSrc = fs.readFileSync(path.join(root, 'src/services/queryAi.ts'), 'utf8')
+  assert(queryPageSrc.includes('data.settings.wordLanguage ?? \'en\'')
+    && queryAiSrc.includes('请将以下内容翻译为中文，源语言为')
+    && queryAiSrc.includes('俄语') && queryAiSrc.includes('英语')
+    && ocrSrc.includes('ocrSystemPrompt(lang)'),
+  '全局语言联动：读 settings.wordLanguage，翻译源语言措辞与 OCR 语言随语种切换')
+
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
-  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ 词场多语言（俄语 ТРКИ A1/A2·重音/性别/双语例句契约·language 排程标记隔离·settings.wordLanguage 持久化不新增键·ru-RU 发音与缺包提示·33 字母软键盘·语言切换面板与词库替换·名词六格变格数据·S2 性别Badge与变格折叠卡·S2.5 西里尔原句保真显示与中俄对照修复·俄语 S2/S2.5 步骤拆分（独立 readaloud step·S2 精简无变格表·S2.5 独立录音评分页·MediaRecorder 手动录音红点正计时·VoiceAssessmentAgent 纯前端 PCM 评分三维度·重录/完成·无麦降级））/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 首页场景库（40 场景·生活/职场/学术/旅行四类·等级 Tab 下划线高亮·挑战模式提示·任意等级零拦截直接进对话·两个文字入口·输入框主体不变·不新增存储键）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏）/ 大文本存储迁移（IndexedDB 双表·索引/正文分离·字数与 CEFR 派生指标保留·迁移幂等·端到端零丢失·31 键契约不变）/ 内容扩充（书架 129 本公版书元数据·难度/主题筛选·每页 20 分页·古登堡搜索不编 ID / 文化 50+55=105 条合规视频·playlist-only 零编造 / 电影 10 部 JSON·预告片纯净化（移除全片跳转）·2 部真实 BV 号应用内 iframe 播放·3s 超时/空源/onError 降级海报·无盗版无网盘·动态 import 不进 31 键） 全部通过')
+  console.log('\n🎉 SMOKE TEST PASSED — 原有流程 / 雅思六档 / 四维度 / 语音评判 / 录音转文字 / 文学长廊（公版书库·三视图·证据校验·苏格拉底研讨·迁移）/ 文化视角视频（白名单·官方嵌入·短引用·观后讨论·迁移·三层储量：50 条种子（44 基线 + 6 条 playlist-only 补强）·播放列表注册表·手动同步·库健康度）/ Word Lab 词场（7 库分片·五步状态机·艾宾浩斯阶梯并轨 SM-2·3 Agent·6 新键·易错本·S0 满额·迁移）/ 词场多语言（俄语 ТРКИ A1/A2·重音/性别/双语例句契约·language 排程标记隔离·settings.wordLanguage 持久化不新增键·ru-RU 发音与缺包提示·33 字母软键盘·语言切换面板与词库替换·名词六格变格数据·S2 性别Badge与变格折叠卡·S2.5 西里尔原句保真显示与中俄对照修复·俄语 S2/S2.5 步骤拆分（独立 readaloud step·S2 精简无变格表·S2.5 独立录音评分页·MediaRecorder 手动录音红点正计时·VoiceAssessmentAgent 纯前端 PCM 评分三维度·重录/完成·无麦降级）·й/и 识别修复（词库 stripStress 保护 U+0306·NFC 归一消假错·大小写空格容错·и↔й 红色提示·键盘高亮小圆点分离）·词场垂直间距收拢·S3 防卡死（错误保留输入·自动聚焦·提交不锁死·温柔提示·三次错误展答案+下一步放行·局部修改））/ S2.5 跟读朗读（听标准音·词级比对·10s/0.8s/静音·四级降级·Mock 演示·第 24 键·发音待留意）/ Growth System（awardXp 统一入口·幂等账本·等级曲线·streak 冻结卡·27 枚成就·成长页/成就页·XpToast/LevelUpBanner·4 新键与一次性迁移）/ China Learner Track（四轨道 40 原创单元·struggle 可见·结构级反馈优先级·省份默认关闭·来源许可分层·2 个场景词包·Dialogue assessmentFocus·第 29 键·Mock 全流程）/ CEFR 等级层（三模块分级内容池 39 单元·cefrBasis≥3 项依据·LevelFilterService 共用筛选·跳级/留级/显示全部·第 30 键·每日计划读 active·刷新持久化）/ 对话语音层（自动朗读·真实音色 getVoices·按句切分·TTS 与识别互斥·levelProfile 等级硬约束·角色音色绑定·第 31 键·降级不静默失败）/ PWA 离线壳（vite-plugin-pwa·registerType prompt·manifest.webmanifest·iOS meta·App Shell 预缓存·用户点确认才更新）/ 刷新持久化 / 全局错误边界（防白屏·怒气小脸·双保险·零网络改动） / Netlify 全栈迁移（Functions·双代理·同源 invokeChat） / 徽章隐藏兜底（纯 CSS·五重锁） / 防刷限流（内存 IP 双窗口·429 契约·前端优雅提示） / 前端异常处理（双层错误边界·500/401 红色系统提示·离线功能隔离） / PWA 更新提示迁移（virtual:pwa-register/react·useRegisterSW·唯一注册入口·底部不遮导航） / AI 发音评测（evaluate 函数·复用 IP 限流·eval: 独立分桶·口音切换·得分环·XP 幂等·易错词库） / 大肥鱼自由对话（freetalk 函数·6 条鱼立体立绘 WebP·人设锁死 Prompt·防 OOC 末条指令·防提示注入·英美澳口音 TTS·6 套朗读动作·主题色变量·人设化总结 JSON·8 次/分钟独立分桶限流·悬浮电子宠物四态机·人设分岔 CSS 动作·显隐开关）/ 内置语音转写（Android 录音降级·webm→16kHz WAV·DeepSeek ASR·asr 独立分桶·假录音器端到端回归·method 误传时间戳回归护栏）/ 移动端语音兼容（UA 分诊·手势内开麦·安全上下文硬门槛·不支持弹窗与文字输入出路）/ 手动录音模式（Start/Stop 仅用户点击·无静音/时长自动停止·原生 onend 续听·emit 唯一出口·三处麦克风两态波形 UI）/ 首页场景库（40 场景·生活/职场/学术/旅行四类·等级 Tab 下划线高亮·挑战模式提示·任意等级零拦截直接进对话·两个文字入口·输入框主体不变·不新增存储键）/ 文化信息流（圆角搜索·新闻式分类 Tab·纯文字快讯·大图蒙版头条·视频混排·齿轮收纳·品牌配色与层级护栏）/ 大文本存储迁移（IndexedDB 双表·索引/正文分离·字数与 CEFR 派生指标保留·迁移幂等·端到端零丢失·31 键契约不变）/ 内容扩充（书架 129 本公版书元数据·难度/主题筛选·每页 20 分页·古登堡搜索不编 ID / 文化 50+55=105 条合规视频·playlist-only 零编造 / 电影 10 部 JSON·预告片纯净化（移除全片跳转）·2 部真实 BV 号应用内 iframe 播放·3s 超时/空源/onError 降级海报·无盗版无网盘·动态 import 不进 31 键）/ 查询 Query（独立视图不占底栏·首页入口 navigate(query)·音视频翻译拖拽区+ASR→chat+视频抽音轨降级+一键复制·拍照 OCR 后置摄像头 Hook+权限拒绝降级+结构化解析·离线词典独立 IndexedDB 库+内置英/俄词包+前缀检索+按语言 TTS·全局 wordLanguage 联动翻译/OCR/发音·零新增 localStorage 键·零新增依赖） 全部通过')
 } catch (err) {
   console.error(err)
   console.log('\n控制台错误:', errors.slice(0, 5).join('\n'))

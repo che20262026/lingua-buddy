@@ -204,6 +204,12 @@ export function Home() {
             className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-full border border-brand-100 bg-slate-50 px-5 py-3 text-sm font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-50 active:scale-[0.98]">
             <Icon name="cards" size={17} />浏览全部场景 <Icon name="right" size={14} />
           </button>
+          {/* [新增] 查询 Query：音视频翻译 / OCR / 离线词典，独立视图，不占底栏 */}
+          <button type="button" data-testid="home-query-entry"
+            onClick={() => navigate('query')}
+            className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-5 py-3 text-sm font-semibold text-brand-600 transition hover:border-brand-300 hover:bg-brand-100 active:scale-[0.98]">
+            <Icon name="search" size={17} />查询工具 <Icon name="right" size={14} />
+          </button>
         </div>
 
         <p className="mt-3 text-center text-[11px] leading-relaxed text-muted">

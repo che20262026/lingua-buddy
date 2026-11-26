@@ -33,6 +33,8 @@ import { ChinaTrackHome } from './pages/ChinaTrackHome'
 import { ChinaUnitPage } from './pages/ChinaUnitPage'
 /** [新增] 大肥鱼自由对话：独立闲聊沙盒视图 */
 import { FreeTalk } from './pages/FreeTalk'
+/** [新增] 查询 Query：音视频翻译 / OCR 解析 / 离线词典，从首页入口进入 */
+import { Query } from './pages/Query'
 
 const PAGES: Record<View, ReactNode> = {
   home: <Home />,
@@ -67,6 +69,8 @@ const PAGES: Record<View, ReactNode> = {
   chinaUnit: <ChinaUnitPage />,
   /** [新增] 大肥鱼自由对话：独立闲聊沙盒 */
   freeTalk: <FreeTalk />,
+  /** [新增] 查询 Query：三 Tab 工具页，不占底部导航 */
+  query: <Query />,
 }
 
 /**

@@ -34,6 +34,8 @@ const WORD_LAB_VIEWS: View[] = ['wordLab', 'deckPicker', 'wordSession', 'errorBo
 const GROWTH_VIEWS: View[] = ['growth', 'achievements', 'progress']
 /** [China Learner Track] 资源库两个视图归入「学习」，不新增底部导航项 */
 const CHINA_TRACK_VIEWS: View[] = ['chinaTrack', 'chinaUnit']
+/** [查询 Query] 查询工具页归入「学习」，不新增底部导航项 */
+const QUERY_VIEWS: View[] = ['query']
 
 function Brand() {
   return (
@@ -143,7 +145,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="glass flex items-center justify-around overflow-x-auto rounded-3xl border border-white/80 px-2 py-1.5 shadow-float">
           {NAV.map((item) => {
             const active = view === item.view ||
-              (item.view === 'home' && ['analysis', 'scenario', 'dialogue', 'report', ...CHINA_TRACK_VIEWS].includes(view)) ||
+              (item.view === 'home' && ['analysis', 'scenario', 'dialogue', 'report', ...CHINA_TRACK_VIEWS, ...QUERY_VIEWS].includes(view)) ||
               (item.view === 'library' && LITERARY_VIEWS.includes(view)) ||
               (item.view === 'cultureHub' && CULTURE_VIEWS.includes(view)) ||
               (item.view === 'wordLab' && WORD_LAB_VIEWS.includes(view)) ||

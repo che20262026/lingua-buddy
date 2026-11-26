@@ -3,7 +3,7 @@ import { useApp } from '../store/useAppStore'
 import { firstShard, DECK_META } from '../data/wordDecks'
 import { fetchWordMedia, imageSrc } from '../services/wordMedia'
 import { coachWordSession } from '../services/wordCoach'
-import { buildChoices, compareSpelling, finishWordSession, maskTargetWord, type SpellingCell } from '../lib/wordLabFlow'
+import { buildChoices, compareSpelling, finishWordSession, maskTargetWord, yiConfusion, type ConfusableHint, type SpellingCell } from '../lib/wordLabFlow'
 import { applyPronunciationResults } from '../services/pronunciation'
 import { speak } from '../lib/speech'
 import { Card, Chip, EmptyState, Icon, ProgressBar, SectionTitle } from '../components/ui'
@@ -77,6 +77,14 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
   const [showAnnotation, setShowAnnotation] = useState(false)
   const [spellInput, setSpellInput] = useState('')
   const [cells, setCells] = useState<SpellingCell[] | null>(null)
+  /** [俄语 й/и 修复] 仅当差异纯属 и/й 互换时给出红色明确提示 */
+  const [yiHint, setYiHint] = useState<ConfusableHint | null>(null)
+  /** [S3 体验优化] 拼写错误计数（独立于 spellingTries：后者正确时也+1，不能用于「错3次」判定） */
+  const [errorCount, setErrorCount] = useState(0)
+  /** [S3 体验优化] 三次错误后展示答案并放行，防止用户卡死 */
+  const [showAnswer, setShowAnswer] = useState(false)
+  /** [S3 体验优化] 错误后输入框自动重新聚焦，方便直接退格局部修改 */
+  const spellRef = useRef<HTMLInputElement | null>(null)
   const [media, setMedia] = useState<WordMedia | null>(null)
   const [errors, setErrors] = useState<LocalError[]>([])
   const [handwritingMode, setHandwritingMode] = useState<'typing' | 'handwriting'>(data.settings.wordSpellingMode)
@@ -96,6 +104,9 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
     setShowAnnotation(false)
     setSpellInput('')
     setCells(null)
+    setYiHint(null)
+    setErrorCount(0)
+    setShowAnswer(false)
     setHandwritingMode(data.settings.wordSpellingMode)
     setPronOpen(false)
     if (entry && data.settings.wordAutoSpeak) {
@@ -202,13 +213,21 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
 
   /* ---------------- S3 拼写 ---------------- */
   const submitSpelling = () => {
-    if (!entry || !spellInput.trim()) return
+    if (!entry || !spellInput.trim() || showAnswer) return
     const result = compareSpelling(entry.word, spellInput)
     const tries = record.spellingTries + 1
     if (result.correct) {
       advance({ ...record, spellingTries: tries, spellingPassed: true, spellingMode: handwritingMode })
     } else {
+      /* [S3 体验优化] 错误后保留用户输入，只标注差异 + 聚焦输入框，方便局部退格修改。
+         第 3 次错误直接展示答案并解锁「下一步」，防止反复拼错卡死。 */
+      const nextErrorCount = errorCount + 1
+      setErrorCount(nextErrorCount)
+      const reveal = nextErrorCount >= 3
+      setShowAnswer(reveal)
       setCells(result.cells)
+      // [俄语 й/и 修复] 判错后识别是否单纯 и/й 互换，给明确红色提示（对英语恒为 null）
+      setYiHint(!reveal && entry.language === 'ru' ? yiConfusion(entry.word, spellInput) : null)
       setErrors((prev) => [...prev, { word: entry.word, type: 'spelling', detail: spellInput.trim() }])
       setRecord((r) => ({ ...r, spellingTries: tries, spellingMode: handwritingMode }))
       app.update((prev) => ({
@@ -219,12 +238,26 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
             ? { ...r, spellingTries: tries, spellingPassed: false, spellingMode: handwritingMode } : r),
         },
       }))
+      // 不展示答案时自动回到输入框；展示答案时按钮接管焦点，不再抢焦点
+      if (!reveal) window.setTimeout(() => spellRef.current?.focus(), 0)
     }
   }
 
+  /** [S3 体验优化] 三次错误后放行：走与正确路径相同的 advance 出口，但诚实记为未通过（进易错本）。 */
+  const proceedAfterAnswer = () => {
+    if (!entry) return
+    advance({
+      ...record, spellingTries: record.spellingTries, spellingPassed: false,
+      spellingMode: handwritingMode,
+    })
+  }
+
   const retrySpelling = () => {
-    setSpellInput('')
+    /* [S3 体验优化] 清除标注但保留已输入字母与错误计数（防止点一下就绕过 3 次上限）；
+       cells 必须清掉——它回显的是含词形的错误输入，留着会泄露答案且触发遮蔽断言。 */
     setCells(null)
+    setYiHint(null)
+    window.setTimeout(() => spellRef.current?.focus(), 0)
     if (canvasRef.current?.getContext?.('2d')) {
       const c = canvasRef.current
       const ctx = c.getContext('2d')
@@ -424,7 +457,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
 
       {/* S1/S2 词卡显示单词；S3 书写阶段换成「回忆提示卡」——不出现任何词形 */}
       {draft.step === 'spell' ? (
-        <div className="wl-glass mx-auto mt-5 max-w-[600px] rounded-[28px] px-5 py-7">
+        <div className="wl-glass mx-auto mt-3 max-w-[600px] rounded-[28px] px-5 py-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[10px] font-black tracking-[0.16em] text-brand-600">只给提示，不显示单词</p>
@@ -451,14 +484,14 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
           </p>
         </div>
       ) : (
-        <div className="mx-auto mt-5 max-w-[600px] py-6 text-center">
+        <div className="mx-auto mt-3 max-w-[600px] py-4 text-center">
           <div className="flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
             <p className="en-text wl-word font-black text-ink">{entry.word}</p>
             {/* [AI 发音评测] 命中易错词库时优先标记，引导用户去练发音 */}
             {challengerFor(entry.word) && <Chip tone="coral">易错词</Chip>}
           </div>
           <p className="mt-3 text-xs font-medium tracking-wide text-muted">{entry.phonetic} · {entry.pos} · CEFR {entry.cefr}</p>
-          <div className="mt-5 flex items-center justify-center gap-2">
+          <div className="mt-3 flex items-center justify-center gap-2">
             <button type="button" onClick={() => { try { speak(entry.word, data.settings, entry.language === 'ru' ? 'ru-RU' : undefined) } catch { /* noop */ } }}
               aria-label="朗读单词" className="inline-flex min-h-[44px] items-center gap-2 rounded-2xl bg-brand-50 px-4 text-sm font-bold text-brand-600 transition hover:bg-brand-100">
               <Icon name="speaker" size={18} />朗读
@@ -473,7 +506,7 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
             </button>
           </div>
           {pronOpen && (
-            <div className="wl-glass mx-auto mt-5 max-w-[520px] rounded-2xl p-4 text-left">
+            <div className="wl-glass mx-auto mt-3 max-w-[520px] rounded-2xl p-4 text-left">
               <PronunciationLab entry={entry} defaultAccent={data.settings.accent} />
             </div>
           )}
@@ -614,33 +647,77 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
 
           {handwritingMode === 'typing' ? (
             <>
-              <input className={entry?.language === 'ru' ? 'field !bg-white/90 !py-4 !text-base' : 'field en-text !bg-white/90 !py-4 !text-base'}
+              <input
+                ref={spellRef}
+                data-testid="spell-input"
+                disabled={showAnswer}
+                className={`${entry?.language === 'ru' ? '' : 'en-text '}field !py-4 !text-base ${
+                  showAnswer ? '!bg-mint-100/60'
+                    : errorCount > 0 ? '!bg-white/90 !border !border-coral-400 !text-coral-700'
+                      : '!bg-white/90'}`}
                 value={spellInput} autoComplete="off" spellCheck={false}
                 onChange={(e) => setSpellInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') submitSpelling() }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !showAnswer) submitSpelling() }}
                 placeholder={entry?.language === 'ru' ? '点下方俄语字母键盘拼写，或直接用输入法' : '不提示字母数，凭记忆拼写'} />
+
+              {/* [S3 体验优化] 固定高度提示区：错误计数 / 温柔提示 / 三次答案，高度稳定不抖动 */}
+              <div className="mt-2 min-h-[40px]">
+                {showAnswer ? (
+                  <div data-testid="spell-answer-reveal" className="rounded-xl bg-mint-100 px-3 py-2">
+                    <p className="text-[10px] font-bold text-emerald-700">已连续拼错 3 次，正确答案是：</p>
+                    <p data-testid="spell-answer-word" className="en-text mt-0.5 text-xl font-black text-emerald-700">
+                      {entry?.wordAccented || entry?.word}
+                    </p>
+                  </div>
+                ) : errorCount > 0 ? (
+                  <p data-testid="spell-error-hint" className="rounded-xl bg-coral-100/70 px-3 py-2 text-xs font-bold leading-relaxed text-coral-600">
+                    {yiHint
+                      ? `注意：你输入了 ${yiHint.from}，但正确的字母是带短音符的 ${yiHint.to}。拼写有误，再试一次吧（第 ${errorCount}/3 次）`
+                      : `拼写有误，再试一次吧（第 ${errorCount}/3 次）`}
+                  </p>
+                ) : null}
+              </div>
+
               {/* [多语言·俄语] 33 字母软键盘：手机无西里尔输入法也能完成 S3 拼写。
                   仅追加/删除 spellInput 字符，不触碰 submitSpelling / commit / advance 三条冻结路径。 */}
               {entry?.language === 'ru' && (
                 <div data-testid="ru-keyboard" className="mt-3 rounded-2xl bg-white/85 p-3">
                   <p className="text-[10px] font-bold text-muted">俄语字母键盘 · 点击拼写（33 字母）</p>
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {RU_ALPHABET.map((ch) => (
-                      <button key={ch} type="button" aria-label={`输入 ${ch}`}
-                        onClick={() => setSpellInput((v) => v + ch)}
-                        className="flex h-10 min-w-10 items-center justify-center rounded-lg bg-brand-50 px-1.5 text-sm font-bold text-brand-700 transition active:scale-95 hover:bg-brand-100">
-                        {ch}
-                      </button>
-                    ))}
+                    {RU_ALPHABET.map((ch) => {
+                      /* [й/и 修复] и 与 й 相邻最易点错：й 用高亮底 + 右上角小圆点 + 明确 aria-label 区分 */
+                      const isShortI = ch === 'й'
+                      return (
+                        <button key={ch} type="button" disabled={showAnswer}
+                          data-testid={isShortI ? 'ru-key-yi' : ch === 'и' ? 'ru-key-i' : undefined}
+                          aria-label={isShortI ? '输入 й（带短音符的伊）' : `输入 ${ch}`}
+                          onClick={() => setSpellInput((v) => v + ch)}
+                          className={`relative flex h-10 min-w-10 items-center justify-center rounded-lg px-1.5 text-sm font-bold transition active:scale-95 ${
+                            isShortI
+                              ? 'bg-sun-100 text-[#a56a08] ring-1 ring-sun-300 hover:bg-sun-200'
+                              : 'bg-brand-50 text-brand-700 hover:bg-brand-100'}`}>
+                          {ch}
+                          {isShortI && (
+                            <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-sun-500" aria-hidden="true" />
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
-                  <button type="button" onClick={() => setSpellInput((v) => v.slice(0, -1))}
-                    className="mt-2 flex min-h-[44px] w-full items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-muted transition active:scale-[0.98]">
+                  <button type="button" disabled={showAnswer} onClick={() => setSpellInput((v) => v.slice(0, -1))}
+                    className="mt-2 flex min-h-[44px] w-full items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-muted transition active:scale-[0.98] disabled:opacity-40">
                     ⌫ 退格
                   </button>
                 </div>
               )}
               {cells && (
                 <div className="mt-3 rounded-2xl bg-white/80 p-3">
+                  {/* [俄语 й/и 修复] 仅 и↔й 互换时给明确红色提示，指出错在短音符 */}
+                  {yiHint && (
+                    <p data-testid="ru-yi-hint" className="mb-2.5 rounded-xl bg-coral-100/80 px-3 py-2 text-[12px] font-bold leading-relaxed text-coral-600">
+                      注意：你输入了 <span className="font-mono">{yiHint.from}</span>，但正确的字母是带短音符的 <span className="font-mono">{yiHint.to}</span>。
+                    </p>
+                  )}
                   <p className="text-[10px] font-bold text-muted">逐字母比对（绿色正确 / 红色需修改）</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {cells.map((c, i) => (
@@ -650,14 +727,24 @@ function SessionBody({ draft }: { draft: WordSessionDraft }) {
                     ))}
                   </div>
                   <button type="button" onClick={retrySpelling} className="btn-ghost mt-3 w-full !py-2.5 !text-xs">
-                    <Icon name="refresh" size={14} />重拼一次
+                    <Icon name="refresh" size={14} />重拼一次（保留已输入字母，直接改）
                   </button>
                 </div>
               )}
-              <button type="button" onClick={submitSpelling} disabled={!spellInput.trim() || !!cells}
-                className="btn-primary mt-4 w-full !py-3 disabled:opacity-40">
-                提交拼写<Icon name="right" size={15} />
-              </button>
+              {/* [S3 体验优化] 不再因 cells 存在而锁死提交：错误后可直接退格修改并重提；
+                  三次错误后替换为「下一步」放行，防止卡死。 */}
+              {showAnswer ? (
+                <button type="button" onClick={proceedAfterAnswer} data-testid="spell-next-after-answer"
+                  className="btn-primary mt-4 w-full !py-3">
+                  下一步<Icon name="right" size={15} />
+                </button>
+              ) : (
+                <button type="button" onClick={submitSpelling} disabled={!spellInput.trim()}
+                  data-testid="spell-submit"
+                  className="btn-primary mt-4 w-full !py-3 disabled:opacity-40">
+                  提交拼写<Icon name="right" size={15} />
+                </button>
+              )}
             </>
           ) : (
             <>

@@ -45,6 +45,18 @@ const PATHS: Record<string, ReactNode> = {
     <path d="M2.6 12c3.1-4.4 7.2-5.9 10.7-4.3 1.9.9 3.4 2.3 4.3 3.4.4.4 1 .4 1.4 0 .9-1.1 2.4-2.5 4.3-3.4 3.5-1.6 7.6-.1 10.7 4.3-3.1 4.4-7.2 5.9-10.7 4.3-1.9-.9-3.4-2.3-4.3-3.4-.4-.4-1-.4-1.4 0-.9 1.1-2.4 2.5-4.3 3.4-3.5 1.6-7.6.1-10.7-4.3Z" />
     <circle cx="7.4" cy="10.6" r="1.15" fill="currentColor" stroke="none" />
   </>,
+  /** [查询 Query] 拍照识别 */
+  camera: <><path d="M4 8h3.2l1.3-2h7l1.3 2H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" /><circle cx="12" cy="13" r="3.2" /></>,
+  /** [查询 Query] 一键复制 */
+  copy: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
+  /** [查询 Query] 词典下载 */
+  download: <><path d="M12 3v12M8 11l4 4 4-4" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></>,
+  /** [查询 Query] 音视频翻译 */
+  translate: <><path d="M3 5h9M7.5 3v2M11 5c0 4-3 7-7 8M6 9c1.2 2.6 3.4 4.4 6 5" /><path d="m13 20 4-9 4 9M14.6 17h4.8" /></>,
+  /** [查询 Query] 视频文件 */
+  video: <><rect x="3" y="5" width="13" height="14" rx="2" /><path d="m16 10 5-3v10l-5-3z" /></>,
+  /** [查询 Query] 词典包 */
+  dictionary: <><path d="M5 4h11a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V5a1 1 0 0 1 1-1Z" /><path d="M5 18a2 2 0 0 1 2-2h11M8 8h7M8 11h5" /></>,
 }
 
 export type IconName = keyof typeof PATHS

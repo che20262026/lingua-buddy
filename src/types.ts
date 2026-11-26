@@ -65,6 +65,8 @@ export type View =
   | 'chinaUnit'
   /** [新增] 大肥鱼自由对话：脱离剧本的闲聊沙盒，独立视图 */
   | 'freeTalk'
+  /** [新增] 查询 Query：音视频翻译 / OCR 解析 / 离线词典三合一，归入「学习」，不占底栏 */
+  | 'query'
 
 export interface Keyword {
   word: string

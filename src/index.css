@@ -1191,7 +1191,9 @@ nav .glass {
   isolation: isolate;
   min-height: calc(100dvh - 150px);
   margin: 0 -0.25rem;
-  padding: 1.25rem 0.75rem 6rem;
+  /* [间距收拢] 顶部与底部留白收紧，让当前步骤核心按钮首屏可见；
+     底部仍留 4.5rem 给固定底部导航，不遮挡操作 */
+  padding: 0.75rem 0.75rem 4.5rem;
   border-radius: 28px;
   overflow: hidden;
   background:
