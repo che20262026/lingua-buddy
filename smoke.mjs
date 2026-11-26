@@ -7836,9 +7836,10 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     && querySettingsSrc.includes('optionTestIdPrefix="settings-lang"'),
   '语言切换：查询页与设置页共用 LanguageSwitcher，唯一真源 settings.wordLanguage')
   assert(storeStorageSrc.includes("wordLanguage: 'en'")
-    && storeStorageSrc.includes("result.settings.wordLanguage = 'en'")
+    && storeStorageSrc.includes('migrateLanguageDefault(')
+    && storeStorageSrc.includes('languageResetV2')
     && Object.keys(wlStorage.KEYS).length === 31,
-  '默认语言英语：无记录时强制 en，损坏旧值兜底 en，合法 ru 保留，31 键契约不变')
+  '默认语言英语：启动迁移强制 en 并打标记，31 键契约不变')
   assert(cameraOverlaySrc.includes('fixed inset-0 z-50')
     && cameraOverlaySrc.includes('bg-black')
     && cameraOverlaySrc.includes('object-cover')
@@ -7850,6 +7851,69 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     && ocrSrc.includes('CameraOverlay')
     && ocrSrc.includes('cam.stop()'),
   '全屏摄像头：黑底铺屏 + object-cover + 滚动锁与位置恢复 + 拍照后立刻退出全屏')
+
+  /* ============ [查询修复 v2] 强制英语迁移 / 视觉 OCR / 框选裁剪 ============ */
+  // 纯函数：旧存档（无标记）即使存了 ru 也强制 en；已迁移存档保留用户主动选的 ru
+  const qStore = await loadModule('src/lib/storage.ts', 'qstore-v2')
+  const oldRu = qStore.migrateLanguageDefault({ wordLanguage: 'ru' }, false)
+  const migratedRu = qStore.migrateLanguageDefault({ wordLanguage: 'ru', languageResetV2: true }, true)
+  const broken = qStore.migrateLanguageDefault({ wordLanguage: 'fr' }, true)
+  assert(oldRu.wordLanguage === 'en' && oldRu.languageResetV2 === true
+    && migratedRu.wordLanguage === 'ru'
+    && broken.wordLanguage === 'en' && broken.languageResetV2 === true
+    && qStore.DEFAULT_SETTINGS.wordLanguage === 'en'
+    && qStore.DEFAULT_SETTINGS.languageResetV2 === true,
+  '默认语言强制英语：旧存档 ru→en 一次性迁移，迁移后主动选 ru 保留，损坏值兜底 en')
+
+  // 裁剪纯函数：clamp / drag / 像素换算
+  const cropMod = await loadModule('src/lib/cropRect.ts', 'crop-rect')
+  const c0 = cropMod.clampCrop({ x: 0.9, y: 0.9, w: 0.8, h: 0.8 })
+  assert(Math.abs(c0.x - 0.2) < 1e-9 && Math.abs(c0.y - 0.2) < 1e-9
+    && Math.abs(c0.w - 0.8) < 1e-9 && Math.abs(c0.h - 0.8) < 1e-9,
+  '裁剪选框钳制在图片内（不越界）')
+  const moved = cropMod.dragCrop(cropMod.INITIAL_CROP, 'move', 0.05, -0.05)
+  const resized = cropMod.dragCrop(cropMod.INITIAL_CROP, 'se', 0.02, 0.02)
+  assert(Math.abs(moved.x - 0.13) < 1e-9 && Math.abs(moved.y - 0.03) < 1e-9
+    && resized.w > cropMod.INITIAL_CROP.w && resized.h > cropMod.INITIAL_CROP.h,
+  '框选交互：整体拖拽平移 + 右下角缩放（坐标增量按容器比例换算）')
+  const px = cropMod.cropPixels({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, 1000, 800)
+  assert(px.sx === 250 && px.sy === 200 && px.sw === 500 && px.sh === 400
+    && px.dw <= 1600 && px.dh <= 1600,
+  '裁剪像素换算：归一化框 → 源图像素矩形，输出长边 ≤1600 控制 Base64 体积')
+
+  // 视觉 OCR：服务端 chat 多模态，提示词要求纯文本，零 tesseract / 零新增依赖
+  const qAiSrc = stripComments(fs.readFileSync(path.join(root, 'src/services/queryAi.ts'), 'utf8'))
+  const cropUiSrc = stripComments(fs.readFileSync(path.join(root, 'src/components/query/CropOverlay.tsx'), 'utf8'))
+  const pkgSrc = fs.readFileSync(path.join(root, 'package.json'), 'utf8')
+  const allSrc = [stripComments(ocrSrc), qAiSrc, cropUiSrc,
+    stripComments(queryPageSrc), stripComments(querySettingsSrc), stripComments(cameraHookSrc)].join('\n')
+  assert(/tesseract/i.test(allSrc) === false && !/tesseract/i.test(pkgSrc),
+    '识图方案：全链路零 tesseract（不引入前端 OCR 库）')
+  assert(qAiSrc.includes('You are an OCR assistant with vision')
+    && qAiSrc.includes('逐行原样转写') && qAiSrc.includes('只输出提取到的纯文本正文')
+    && ocrSrc.includes('请提取图片中的全部文字，只输出纯文本：')
+    && ocrSrc.includes('askQueryAi({') && ocrSrc.includes('base64'),
+  'OCR 走 /chat 视觉模型：提示词要求纯文本提取，裁剪 Base64 直接上传')
+  assert(ocrSrc.includes('data-testid="query-ocr-loading"')
+    && ocrSrc.includes('AI 正在提取文字...')
+    && ocrSrc.includes('void runAnalysis(recognized)')
+    && ocrSrc.includes('setPhoto(null)'),
+  '拍照后流程：AI 提取 loading 可见 → 填入文本框 → 自动触发解析')
+  assert(cropUiSrc.includes('fixed inset-0 z-50')
+    && cropUiSrc.includes('拖动选框，仅保留需要识别的文字区域')
+    && cropUiSrc.includes('data-testid="query-crop-box"')
+    && cropUiSrc.includes('query-crop-handle-${h.mode}')
+    && ['nw', 'ne', 'sw', 'se'].every((h) => cropUiSrc.includes(`mode: '${h}'`))
+    && cropUiSrc.includes('onPointerDown') && cropUiSrc.includes('setPointerCapture')
+    && cropUiSrc.includes('data-testid="query-crop-retake"')
+    && cropUiSrc.includes('data-testid="query-crop-confirm"')
+    && cropUiSrc.includes('toDataURL(\'image/jpeg\'')
+    && cropUiSrc.includes('env(safe-area-inset-bottom)')
+    && !/react-easy-crop|from ['"]react-easy-crop/.test(cropUiSrc),
+  '框选裁剪：全屏预览 + 四角可拖拽缩放选框 + 重拍/确认 + Canvas 转 Base64，零新增库')
+  assert(ocrSrc.includes('setPhoto(shot)') && ocrSrc.includes('<CropOverlay')
+    && ocrSrc.includes('handleRetake') && ocrSrc.includes('cam.open()'),
+  '闭环：拍照→裁剪预览→重拍可回到取景器，确认后裁剪图走识别')
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))

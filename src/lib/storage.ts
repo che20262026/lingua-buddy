@@ -127,8 +127,10 @@ export const DEFAULT_SETTINGS: PersistedData['settings'] = {
   /** [成长系统新增] 默认开启 XP 动画与热力图 */
   showXpAnimation: true,
   showHeatmap: true,
-  /** [多语言] 词场默认英语；旧存档浅合并会自动补此字段 */
+  /** [多语言] 默认英语；旧存档浅合并会自动补此字段 */
   wordLanguage: 'en',
+  /** [多语言 v2] 新安装自带迁移标记；旧存档缺字段时由 loadData 强制重置一次 */
+  languageResetV2: true,
 }
 
 export const DEFAULT_PROFILE: PersistedData['profile'] = {
@@ -215,6 +217,23 @@ function safeParse<T>(raw: string | null, fallback: T): T {
  *   「这条存在、且用户是否改过它」；自定义 / 同步来的条目保留索引，
  *   正文随后由 IndexedDB 水合补齐。
  */
+/**
+ * [多语言 v2] 默认语言强制英语的一次性幂等迁移（纯函数，便于单测）。
+ * - alreadyReset=false（旧存档 / 首次安装）：无条件写 en + 标记，抹掉误存的 ru；
+ * - alreadyReset=true（已迁移过）：只有损坏值才兜底回 en，用户主动选的 ru 原样保留。
+ */
+export function migrateLanguageDefault<S extends { wordLanguage?: string; languageResetV2?: boolean }>(
+  settings: S, alreadyReset: boolean,
+): S {
+  if (settings.wordLanguage !== 'en' && settings.wordLanguage !== 'ru') {
+    return { ...settings, wordLanguage: 'en', languageResetV2: true }
+  }
+  if (!alreadyReset) {
+    return { ...settings, wordLanguage: 'en', languageResetV2: true }
+  }
+  return settings
+}
+
 export function loadData(): PersistedData {
   if (typeof window === 'undefined' || !window.localStorage) return structuredClone(DEFAULT_DATA)
   const result = structuredClone(DEFAULT_DATA)
@@ -236,12 +255,13 @@ export function loadData(): PersistedData {
     }
   }
   /**
-   * [全局语言] 无本地记录时 DEFAULT_SETTINGS.wordLanguage 已是 'en'；
-   * 这里只兜底损坏 / 未知旧值，用户主动选过的合法 'ru' 原样保留（不破坏旧数据）。
+   * [多语言 v2] 强制默认英语的一次性迁移。
+   * 旧存档（无 languageResetV2 标记）无论存了 ru 还是损坏值，一律强制回 en 并打标记；
+   * 新存档 / 已迁移存档保留用户主动选择（切到 ru 学俄语是合法需求）。
    */
-  if (result.settings.wordLanguage !== 'en' && result.settings.wordLanguage !== 'ru') {
-    result.settings.wordLanguage = 'en'
-  }
+  const rawSettings = safeParse<{ languageResetV2?: boolean } | null>(
+    window.localStorage.getItem(KEYS.settings), null)
+  result.settings = migrateLanguageDefault(result.settings, rawSettings?.languageResetV2 === true)
   const today = todayKey()
   if (result.profile.todayDate !== today) {
     result.profile.todayDate = today

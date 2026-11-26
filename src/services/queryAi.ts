@@ -99,9 +99,15 @@ export function analysisSystemPrompt(srcLang: 'en' | 'ru'): string {
     '用 Markdown 小标题与列表，保持简洁，不要编造原文没有的内容。'
 }
 
-/** OCR 系统提示词：读图转写 + 翻译 */
+/**
+ * OCR 系统提示词：多模态大模型视觉提取，纯文本返回（不做前端 tesseract）。
+ * 只提取裁剪框内的全部文字、逐行原样转写；不翻译、不描述、不加标题，
+ * 便于直接填入文本框再交给 analysisSystemPrompt 做结构化解析。
+ */
 export function ocrSystemPrompt(srcLang: 'en' | 'ru'): string {
   const src = srcLang === 'ru' ? '俄语（西里尔字母）' : '英语'
-  return `You are an OCR assistant. 请识别图片中的${src}文字，原样转写（保留重音与标点），` +
-    '然后空一行给出中文翻译。只输出「原文」+「译文」两部分，不要描述图片、不要寒暄。若图中没有可识别文字，只回复 EMPTY。'
+  return `You are an OCR assistant with vision. 请提取这张图片中出现的全部${src}文字，` +
+    '按从上到下、从左到右的顺序逐行原样转写，保留原有换行、重音与标点。' +
+    '只输出提取到的纯文本正文：不要翻译、不要解释、不要描述图片、不要 Markdown 标题或列表符号、不要寒暄。' +
+    '若图中没有任何可识别文字，只回复 EMPTY。'
 }
