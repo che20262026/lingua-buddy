@@ -235,6 +235,13 @@ export function loadData(): PersistedData {
       result[key] = { ...(result[key] as object), ...(value as object) } as never
     }
   }
+  /**
+   * [全局语言] 无本地记录时 DEFAULT_SETTINGS.wordLanguage 已是 'en'；
+   * 这里只兜底损坏 / 未知旧值，用户主动选过的合法 'ru' 原样保留（不破坏旧数据）。
+   */
+  if (result.settings.wordLanguage !== 'en' && result.settings.wordLanguage !== 'ru') {
+    result.settings.wordLanguage = 'en'
+  }
   const today = todayKey()
   if (result.profile.todayDate !== today) {
     result.profile.todayDate = today

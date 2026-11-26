@@ -12,6 +12,7 @@ import { askQueryAi, analysisSystemPrompt, ocrSystemPrompt, type QueryAiFailure 
 import { codeFromStatus } from '../aiErrorChannel'
 import { AiErrorCard } from '../AiErrorCard'
 import { Chip, Icon } from '../ui'
+import { CameraOverlay } from './CameraOverlay'
 
 export function OCRTranslator({ lang }: { lang: 'en' | 'ru' }) {
   const [text, setText] = useState('')
@@ -23,7 +24,12 @@ export function OCRTranslator({ lang }: { lang: 'en' | 'ru' }) {
 
   const runOcr = async () => {
     const shot = cam.capture()
-    if (!shot) return
+    if (!shot) {
+      setAiError({ ok: false, reason: 'empty', detail: '画面还没准备好，请稍候再点一次拍照。', fallbackText: '' })
+      return
+    }
+    // 拍照完成即刻退出全屏（恢复页面滚动与原来的位置），再拿截图走 OCR
+    cam.stop()
     const signal = nextSignal()
     setWorking('ocr'); setAiError(null)
     const ai = await askQueryAi({
@@ -32,7 +38,6 @@ export function OCRTranslator({ lang }: { lang: 'en' | 'ru' }) {
       signal,
       fallbackText: '',
     }, shot.dataUrl)
-    cam.stop()
     if (!isMounted() || signal.aborted) { setWorking(null); return }
     if (!ai.ok) {
       setAiError(ai)
@@ -104,21 +109,15 @@ export function OCRTranslator({ lang }: { lang: 'en' | 'ru' }) {
         </div>
       </div>
 
-      {/* 摄像头预览 / 权限降级 */}
+      {/* 摄像头全屏取景器 / 权限降级 */}
       {cam.phase === 'live' && (
-        <div data-testid="query-camera-live" className="rounded-2xl overflow-hidden border border-brand-100 bg-black">
-          <video ref={cam.videoRef} playsInline muted className="w-full max-h-72 object-contain" />
-          <div className="flex gap-2 bg-white p-2">
-            <button type="button" data-testid="query-camera-capture" onClick={() => void runOcr()} disabled={working === 'ocr'}
-              className="btn-primary min-h-[44px] flex-1 !text-sm disabled:opacity-40">
-              <Icon name="camera" size={16} />{working === 'ocr' ? '识别中…' : '截取并识别'}
-            </button>
-            <button type="button" onClick={cam.stop}
-              className="inline-flex min-h-[44px] items-center rounded-2xl border border-brand-100 px-4 text-sm font-semibold text-brand-600">
-              取消
-            </button>
-          </div>
-        </div>
+        <CameraOverlay
+          videoRef={cam.videoRef}
+          onCapture={() => void runOcr()}
+          onCancel={cam.stop}
+          working={working === 'ocr'}
+          error={cam.error}
+        />
       )}
       {cam.phase === 'denied' || cam.phase === 'unsupported' || cam.phase === 'error' ? (
         <div data-testid="query-camera-fallback" role="status" className="rounded-xl bg-sun-100/60 px-3 py-3 text-[12px] leading-relaxed text-[#8a5b08]">

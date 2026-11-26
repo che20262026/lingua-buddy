@@ -6,6 +6,8 @@ import type { CEFR, Settings as SettingsType } from '../types'
 import type { GuidanceStrength, ReadingViewMode } from '../literaryTypes'
 import type { CaptionPreference } from '../cultureTypes'
 import { Chip, Icon, Modal, Toggle } from '../components/ui'
+/** [全局语言] 与查询页右上角同一个控件，双向绑定 settings.wordLanguage */
+import { LanguageSwitcher } from '../components/LanguageSwitcher'
 /** [设置页重构] 系统设置风格分组列表原子：灰底白卡 + 行式图标/开关/箭头 */
 import { SettingsGroup, SettingsInline, SettingsRow } from '../components/SettingsBits'
 import { VoiceDiagnostics } from '../components/VoiceDiagnostics'
@@ -148,6 +150,22 @@ export function Settings() {
               <Chip tone="brand">{profile.dailyGoal} XP</Chip>
             </span>
           </label>
+        </SettingsInline>
+      </SettingsGroup>
+
+      {/* 学习语言：与查询页右上角共用一个控件，状态真源 settings.wordLanguage */}
+      <SettingsGroup>
+        <SettingsRow icon="text" iconTone="blue" title="学习语言"
+          subtitle="词场词库、查询页 OCR / 翻译 / 词典发音统一跟随；默认英语。" />
+        <SettingsInline>
+          <LanguageSwitcher
+            variant="inline"
+            sheetTestId="settings-lang-sheet"
+            optionTestIdPrefix="settings-lang"
+          />
+          <p className="mt-2 text-[11px] leading-relaxed text-muted">
+            查询页右上角的 🌐 按钮也是同一组选项，两处实时同步，不新增存储键。
+          </p>
         </SettingsInline>
       </SettingsGroup>
 

@@ -11,6 +11,7 @@
 import { useState } from 'react'
 import { useApp } from '../store/useAppStore'
 import { Icon } from '../components/ui'
+import { LanguageSwitcher } from '../components/LanguageSwitcher'
 import { MediaTranslator } from '../components/query/MediaTranslator'
 import { OCRTranslator } from '../components/query/OCRTranslator'
 import { OfflineDict } from '../components/query/OfflineDict'
@@ -42,10 +43,12 @@ export function Query() {
             <h1 className="text-lg font-black text-ink">查询工具</h1>
             <p className="text-[11px] text-muted">听懂 · 看懂 · 查懂，一站式语言助手</p>
           </div>
-          <span data-testid="query-lang-badge"
-            className="rounded-full border border-brand-100 bg-white px-3 py-1.5 text-[11px] font-bold text-brand-600">
-            {lang === 'ru' ? '🇷🇺 俄语' : '🇬🇧 英语'}
-          </span>
+          {/* 右上角语言切换：与设置页共用同一状态控件，点击即切并立即联动三个 Tab */}
+          <LanguageSwitcher
+            buttonTestId="query-lang-badge"
+            sheetTestId="query-lang-sheet"
+            optionTestIdPrefix="query-lang"
+          />
         </div>
 
         {/* 下划线高亮 Tab */}

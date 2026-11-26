@@ -7411,6 +7411,27 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
       && ['query-tab-media', 'query-tab-ocr', 'query-tab-dict'].every(
         (id) => !!document.querySelector(`[data-testid="${id}"]`)),
     '运行时：查询页显示语言徽标与三个 Tab')
+    // [查询修复] 默认语言英语 + 右上角切换即时联动
+    assert(/英语/.test(document.querySelector('[data-testid="query-lang-badge"]')?.textContent || '')
+      && !/俄语/.test(document.querySelector('[data-testid="query-lang-badge"]')?.textContent || ''),
+    '运行时：查询页右上角默认显示英语（无本地记录强制 en）')
+    fire(document.querySelector('[data-testid="query-lang-badge"]'))
+    await tick(100)
+    assert(!!document.querySelector('[data-testid="query-lang-sheet"]')
+      && !!document.querySelector('[data-testid="query-lang-en"]')
+      && !!document.querySelector('[data-testid="query-lang-ru"]'),
+    '运行时：右上角弹出语言面板，列出英语 / 俄语')
+    fire(document.querySelector('[data-testid="query-lang-ru"]'))
+    await tick(140)
+    assert(/俄语/.test(document.querySelector('[data-testid="query-lang-badge"]')?.textContent || '')
+      && !document.querySelector('[data-testid="query-lang-sheet"]'),
+    '运行时：切到俄语后徽标即时刷新、面板关闭')
+    fire(document.querySelector('[data-testid="query-lang-badge"]'))
+    await tick(100)
+    fire(document.querySelector('[data-testid="query-lang-en"]'))
+    await tick(140)
+    assert(/英语/.test(document.querySelector('[data-testid="query-lang-badge"]')?.textContent || ''),
+    '运行时：查询页切回英语，不污染后续断言')
     // 三个 Tab 切换：媒体 → OCR → 词典
     fire(document.querySelector('[data-testid="query-tab-ocr"]'))
     await tick(80)
@@ -7438,6 +7459,38 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     clickExact('学习', 'Query 测试后回到学习页')
     await tick(100)
     assert(bodyText().includes('把一段英文'), '运行时：查询页返回后首页正常')
+  }
+
+  /* ============ [查询修复] 设置页 ↔ 查询页 语言双向绑定 ============ */
+  {
+    clickExact('设置', '从首页进入设置页验证语言联动')
+    await tick(140)
+    assert(!!document.querySelector('[data-testid="settings-lang-sheet"]')
+      && !!document.querySelector('[data-testid="settings-lang-en"]')
+      && !!document.querySelector('[data-testid="settings-lang-ru"]'),
+    '运行时：设置页语言区域与查询页共用同一组英语 / 俄语选项')
+    fire(document.querySelector('[data-testid="settings-lang-ru"]'))
+    await tick(140)
+    assert(document.querySelector('[data-testid="settings-lang-ru"]')?.getAttribute('aria-checked') === 'true',
+    '运行时：设置页切到俄语，选中态即时更新（同一全局状态）')
+    clickExact('学习', '回学习页准备进入查询页')
+    await tick(120)
+    fire(document.querySelector('[data-testid="home-query-entry"]'))
+    await tick(140)
+    assert(/俄语/.test(document.querySelector('[data-testid="query-lang-badge"]')?.textContent || ''),
+    '运行时：查询页跟随设置页的俄语状态（双向绑定）')
+    fire(document.querySelector('[data-testid="query-lang-badge"]'))
+    await tick(100)
+    fire(document.querySelector('[data-testid="query-lang-en"]'))
+    await tick(140)
+    assert(/英语/.test(document.querySelector('[data-testid="query-lang-badge"]')?.textContent || ''),
+    '运行时：查询页切回英语，全局状态同步')
+    clickExact('设置', '回设置页确认英语同步')
+    await tick(120)
+    assert(document.querySelector('[data-testid="settings-lang-en"]')?.getAttribute('aria-checked') === 'true',
+    '运行时：设置页跟随查询页切回英语（双向绑定闭环）')
+    clickExact('学习', '联动测试后回学习页')
+    await tick(100)
   }
 
   /* ============ 大文本存储迁移：IndexedDB 索引/正文分离（纯函数 + 降级端到端） ============ */
@@ -7769,6 +7822,34 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     && queryAiSrc.includes('俄语') && queryAiSrc.includes('英语')
     && ocrSrc.includes('ocrSystemPrompt(lang)'),
   '全局语言联动：读 settings.wordLanguage，翻译源语言措辞与 OCR 语言随语种切换')
+
+  /* ============ [查询修复] 默认语言英语 / 共用语言控件 / 全屏摄像头契约 ============ */
+  const langSwitchSrc = stripComments(fs.readFileSync(path.join(root, 'src/components/LanguageSwitcher.tsx'), 'utf8'))
+  const cameraOverlaySrc = stripComments(fs.readFileSync(path.join(root, 'src/components/query/CameraOverlay.tsx'), 'utf8'))
+  const querySettingsSrc = fs.readFileSync(path.join(root, 'src/pages/Settings.tsx'), 'utf8')
+  const storeStorageSrc = stripComments(fs.readFileSync(path.join(root, 'src/lib/storage.ts'), 'utf8'))
+  assert(langSwitchSrc.includes('LANGUAGE_OPTIONS')
+    && langSwitchSrc.includes("'en', flag: '🇬🇧'") && langSwitchSrc.includes("'ru', flag: '🇷🇺'")
+    && langSwitchSrc.includes("data.settings.wordLanguage ?? 'en'")
+    && langSwitchSrc.includes("variant === 'inline'")
+    && queryPageSrc.includes('optionTestIdPrefix="query-lang"')
+    && querySettingsSrc.includes('optionTestIdPrefix="settings-lang"'),
+  '语言切换：查询页与设置页共用 LanguageSwitcher，唯一真源 settings.wordLanguage')
+  assert(storeStorageSrc.includes("wordLanguage: 'en'")
+    && storeStorageSrc.includes("result.settings.wordLanguage = 'en'")
+    && Object.keys(wlStorage.KEYS).length === 31,
+  '默认语言英语：无记录时强制 en，损坏旧值兜底 en，合法 ru 保留，31 键契约不变')
+  assert(cameraOverlaySrc.includes('fixed inset-0 z-50')
+    && cameraOverlaySrc.includes('bg-black')
+    && cameraOverlaySrc.includes('object-cover')
+    && cameraOverlaySrc.includes("document.body.style.overflow = 'hidden'")
+    && cameraOverlaySrc.includes('window.scrollTo')
+    && cameraOverlaySrc.includes("overscrollBehavior: 'contain'")
+    && cameraOverlaySrc.includes('data-testid="query-camera-capture"')
+    && cameraOverlaySrc.includes('data-testid="query-camera-cancel"')
+    && ocrSrc.includes('CameraOverlay')
+    && ocrSrc.includes('cam.stop()'),
+  '全屏摄像头：黑底铺屏 + object-cover + 滚动锁与位置恢复 + 拍照后立刻退出全屏')
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))
