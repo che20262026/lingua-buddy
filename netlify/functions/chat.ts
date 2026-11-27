@@ -78,6 +78,42 @@ const MAX_CHARS = 4000
 /** 见文件头「平台适配 2」：Netlify 同步函数默认 ~10s，留 1s 余量给函数自身 */
 const UPSTREAM_TIMEOUT_MS = 9_000
 
+/* ------------------------------------------------------------------ *
+ * [查询 Query · 视觉识别] task:'vision' 分支
+ * ------------------------------------------------------------------
+ * 与对话共用同一个 invokeChat 调用栈（不新建第五套函数），但三点严格隔离：
+ *  1. 限流桶前缀 'vision:' —— 与裸 IP 的 chat 桶互不影响；
+ *  2. 严格 JSON schema + max_tokens + 单图单次，不允许模型自我追问；
+ *  3. requestId 幂等：同一 id 在 TTL 内直接回放结果，不重复打上游。
+ * 环境变量只在服务端读取（无 VITE_ 前缀）：
+ *   VISION_RATE_LIMIT_PER_MINUTE  默认 3
+ *   VISION_RATE_LIMIT_PER_DAY     默认 30
+ * ------------------------------------------------------------------ */
+const VISION_MAX_TOKENS = 1200
+const VISION_MAX_IMAGE_CHARS = 1_600_000 // base64 data URL 上限（压缩后 ≤300KB ≈ 400k 字符，留足余量）
+const VISION_IDEMPOTENT_TTL_MS = 5 * 60_000
+/** 幂等表：requestId → { at, result }；纯内存、有界、按时间淘汰 */
+const visionSeen = new Map<string, { at: number; result: ChatResult }>()
+const VISION_SEEN_MAX = 500
+
+function visionRateLimitConfig(): { perMinute: number; perDay: number } {
+  const parse = (raw: unknown, fallback: number) => {
+    const n = Number(raw)
+    return raw === undefined || raw === null || raw === '' || !Number.isFinite(n) || n < 0 ? fallback : Math.floor(n)
+  }
+  return {
+    perMinute: parse(process.env.VISION_RATE_LIMIT_PER_MINUTE, 3),
+    perDay: parse(process.env.VISION_RATE_LIMIT_PER_DAY, 30),
+  }
+}
+
+/** JSON schema 强约束：只回一行 JSON，字段固定，杜绝多轮自我追问 */
+const VISION_SCHEMA_SYSTEM =
+  'You are a strict OCR vision extractor. Return ONLY one JSON object with exactly one field: ' +
+  '{"text":"<all visible text, verbatim, line breaks preserved>"}. ' +
+  'No markdown, no translation, no explanation, no questions, no follow-ups. ' +
+  'If no text is visible, return {"text":""}. Never call tools or request more images.'
+
 /** 统一降级外壳：前端看到 fallback:true 就知道该用 Mock 了 */
 function fallbackBody(error: string) {
   return { ok: false, fallback: true as const, error }
@@ -179,6 +215,105 @@ function buildMessages(raw: unknown, level: string): WireMessage[] {
 }
 
 /**
+ * [视觉识别] 严格受限的单图单次提取。复用同一上游调用栈，但：
+ *  - 桶前缀 vision:（readRateLimitConfig 的解析规则仍复用同一份 parseLimit）；
+ *  - requestId 幂等（5 分钟 TTL，有界 500 条）；
+ *  - 只接受一条 image_url，system 强制 JSON schema，max_tokens 限死；
+ *  - 429/5xx 结构化 + Retry-After 透传，超时走 fallback 外壳，绝不 502 裸奔。
+ */
+async function invokeVision(
+  req: ChatRequest, body: Record<string, unknown>, key: string, base: string, model: string,
+): Promise<ChatResult> {
+  try {
+    const requestId = typeof body.requestId === 'string' ? body.requestId.trim().slice(0, 80) : ''
+    const now = Date.now()
+    if (requestId) {
+      for (const [id, entry] of visionSeen) {
+        if (now - entry.at > VISION_IDEMPOTENT_TTL_MS) visionSeen.delete(id)
+      }
+      const seen = visionSeen.get(requestId)
+      if (seen && now - seen.at <= VISION_IDEMPOTENT_TTL_MS) {
+        return { ...seen.result, headers: { ...seen.result.headers, 'X-Vision-Idempotent': 'hit' } }
+      }
+    }
+
+    /** 独立桶：桶键加 'vision:' 前缀，与裸 IP 的 chat 桶彻底隔离 */
+    const decision = checkRateLimit(`vision:${clientIp(req.headers)}`, visionRateLimitConfig())
+    if (!decision.allowed) {
+      const limited = rateLimitedResult(decision)
+      return { ...limited, headers: { ...limited.headers, 'X-Vision-Task': 'vision' } }
+    }
+
+    /** 严格校验：messages 只允许 1 条 user，content 里最多 1 个 image_url */
+    const messages = Array.isArray(body.messages) ? body.messages : []
+    if (messages.length !== 1 || !messages[0] || typeof messages[0] !== 'object') {
+      return jsonResult(400, fallbackBody('视觉识别只接受单条图片消息。'))
+    }
+    const content = (messages[0] as Record<string, unknown>).content
+    if (!Array.isArray(content)) return jsonResult(400, fallbackBody('视觉识别需要图文 content 数组。'))
+    const images = content.filter((p): p is { type: string; image_url?: { url?: string } } =>
+      !!p && typeof p === 'object' && (p as Record<string, unknown>).type === 'image_url')
+    if (images.length !== 1) return jsonResult(400, fallbackBody('一次只接受一张图片。'))
+    const url = images[0]?.image_url?.url
+    if (typeof url !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(url) || url.length > VISION_MAX_IMAGE_CHARS) {
+      return jsonResult(400, fallbackBody('图片格式或体积不符合要求（仅 JPEG/PNG/WebP data URL）。'))
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
+    let upstream: Response
+    try {
+      upstream = await fetch(completionUrl(base), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'system', content: VISION_SCHEMA_SYSTEM }, { role: 'user', content }],
+          temperature: 0,
+          max_tokens: VISION_MAX_TOKENS,
+          stream: false,
+        }),
+        signal: controller.signal,
+      })
+    } finally { clearTimeout(timer) }
+
+    if (upstream.status === 429) {
+      const retryAfter = upstream.headers.get('retry-after') || '30'
+      return {
+        statusCode: 429,
+        headers: { ...NO_STORE, 'Retry-After': retryAfter, 'X-Vision-Task': 'vision' },
+        body: JSON.stringify({ ok: false, fallback: true, rateLimited: true, scope: 'upstream', error: '视觉模型繁忙，请稍后手动重试', retryAfterSeconds: Number(retryAfter) || 30 }),
+      }
+    }
+    if (!upstream.ok) {
+      const detail = (await upstream.text().catch(() => '')).replace(/sk-[A-Za-z0-9_-]{6,}/g, 'sk-***').slice(0, 120)
+      return jsonResult(502, fallbackBody(`视觉模型返回 HTTP ${upstream.status}${detail ? `（${detail}）` : ''}，已自动回退本地 Mock 演示。`))
+    }
+
+    const data = await upstream.json() as { choices?: Array<{ message?: { content?: unknown } }> }
+    const rawContent = data?.choices?.[0]?.message?.content
+    if (typeof rawContent !== 'string') throw new Error('视觉模型未返回文本')
+    /** 严格解析 JSON schema，失败按空文本降级（不编造识别结果） */
+    let text = ''
+    try {
+      const parsed = JSON.parse(rawContent.trim()) as { text?: unknown }
+      if (typeof parsed.text === 'string') text = parsed.text.slice(0, MAX_CHARS)
+    } catch { text = '' }
+    const result = jsonResult(200, { ok: true, mode: 'live', content: text, model, provider: safeProvider(base), vision: true })
+    if (requestId) {
+      visionSeen.set(requestId, { at: now, result })
+      if (visionSeen.size > VISION_SEEN_MAX) {
+        const oldest = [...visionSeen.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+        if (oldest) visionSeen.delete(oldest[0])
+      }
+    }
+    return { ...result, headers: { ...result.headers, 'X-Vision-Task': 'vision' } }
+  } catch (err) {
+    return jsonResult(503, fallbackBody(`视觉识别暂时不可用：${friendly(err)}，已自动回退本地 Mock 演示。`))
+  }
+}
+
+/**
  * 与平台无关的核心：三端（Netlify handler / 本地 Express / 冒烟运行时测试）共用。
  * 整个函数体包在 try 里，任何意外都变成可执行降级的 JSON，而不是函数崩溃。
  */
@@ -207,6 +342,12 @@ export async function invokeChat(req: ChatRequest): Promise<ChatResult> {
     }
 
     if (method !== 'POST') return jsonResult(405, fallbackBody('仅支持 GET / POST 请求'))
+
+    const body = parseBody(req.body)
+
+    /** [视觉识别] 独立分支：独立桶 / 幂等 / 严格 schema，绝不占用对话额度 */
+    if (body.task === 'vision') return await invokeVision(req, body, key, base, model)
+
     if (!key) return jsonResult(503, fallbackBody('服务端未配置 LLM_API_KEY，已自动回退本地 Mock 演示。'))
 
     /**
@@ -218,7 +359,6 @@ export async function invokeChat(req: ChatRequest): Promise<ChatResult> {
     const decision = checkRateLimit(clientIp(req.headers), readRateLimitConfig())
     if (!decision.allowed) return rateLimitedResult(decision)
 
-    const body = parseBody(req.body)
     const level = levelOf(body.level)
     const messages = buildMessages(body.messages, level)
     const stream = body.stream === true

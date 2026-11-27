@@ -7820,7 +7820,8 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
   assert(queryPageSrc.includes('data.settings.wordLanguage ?? \'en\'')
     && queryAiSrc.includes('请将以下内容翻译为中文，源语言为')
     && queryAiSrc.includes('俄语') && queryAiSrc.includes('英语')
-    && ocrSrc.includes('ocrSystemPrompt(lang)'),
+    && queryAiSrc.includes('export function ocrSystemPrompt(srcLang')
+    && ocrSrc.includes('targetLang: lang'),
   '全局语言联动：读 settings.wordLanguage，翻译源语言措辞与 OCR 语言随语种切换')
 
   /* ============ [查询修复] 默认语言英语 / 共用语言控件 / 全屏摄像头契约 ============ */
@@ -7891,9 +7892,8 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
     '识图方案：全链路零 tesseract（不引入前端 OCR 库）')
   assert(qAiSrc.includes('You are an OCR assistant with vision')
     && qAiSrc.includes('逐行原样转写') && qAiSrc.includes('只输出提取到的纯文本正文')
-    && ocrSrc.includes('请提取图片中的全部文字，只输出纯文本：')
-    && ocrSrc.includes('askQueryAi({') && ocrSrc.includes('base64'),
-  'OCR 走 /chat 视觉模型：提示词要求纯文本提取，裁剪 Base64 直接上传')
+    && ocrSrc.includes('analyzeVisionImage(dataUrlToBlob(base64)'),
+  'OCR 提示词要求纯文本提取，裁剪图统一交给 VisionQueryService（组件不再直连视觉 fetch）')
   assert(ocrSrc.includes('data-testid="query-ocr-loading"')
     && ocrSrc.includes('AI 正在提取文字...')
     && ocrSrc.includes('void runAnalysis(recognized)')
@@ -7914,6 +7914,204 @@ export { invokeTranscribe, pickTranscript } from './netlify/functions/transcribe
   assert(ocrSrc.includes('setPhoto(shot)') && ocrSrc.includes('<CropOverlay')
     && ocrSrc.includes('handleRetake') && ocrSrc.includes('cam.open()'),
   '闭环：拍照→裁剪预览→重拍可回到取景器，确认后裁剪图走识别')
+
+  /* ============ [视觉识别治理] 唯一入口 / 缓存 / 单飞 / 本地桶 / 429 / 超时 / 清空 ============ */
+  const visionCore = await loadModule('src/lib/visionCore.ts', 'vcore')
+  const visionCache = await loadModule('src/lib/visionCache.ts', 'vcache')
+  const visionSvc = await loadModule('src/services/visionQuery.ts', 'vsvc')
+  const chatFnSrc = stripComments(fs.readFileSync(path.join(root, 'netlify/functions/chat.ts'), 'utf8'))
+  const storeSrc = stripComments(fs.readFileSync(path.join(root, 'src/store/useAppStore.tsx'), 'utf8'))
+
+  // 1. 预处理参数与压缩：≤1280 / JPEG 0.8 / 缓存键 / 剥 EXIF
+  const fitted = visionCore.fitWithinMaxEdge(4000, 3000)
+  assert(fitted.width === 1280 && fitted.height === 960
+    && visionCore.VISION_MAX_EDGE === 1280 && visionCore.VISION_JPEG_QUALITY === 0.8
+    && visionCore.VISION_TIMEOUT_MS === 9000,
+  '预处理：最长边压到 1280、JPEG 0.8、上游超时 9s（低于平台 10s）')
+  assert(visionCore.visionCacheKey('abc', { targetLang: 'en', levelProfile: 'B1' })
+    === 'vision:v1:abc:v1:en:B1'
+    && visionCore.visionCacheKey('abc', { targetLang: 'ru', levelProfile: 'B1' })
+      !== visionCore.visionCacheKey('abc', { targetLang: 'en', levelProfile: 'B1' }),
+  '缓存键 = vision:v1:图哈希:prompt版本:目标语言:等级档位（任一变化不复用）')
+
+  // 2. 本地令牌桶：3/min、30/day，桶满不发网络，返回剩余秒数
+  const tb = visionCore.emptyBucket()
+  let localDenied = null
+  for (let i = 0; i < 4; i++) localDenied = visionCore.acquireToken(tb, 3, 30, 1_000_000 + i * 1000)
+  assert(localDenied.allowed === false && localDenied.retryAfterSeconds > 0
+    && visionCore.acquireToken(visionCore.emptyBucket(), 3, 30, 1_000_000).allowed === true,
+  '本地 vision: 桶 3/min，第 4 次拒绝并返回等待秒数（桶满不发网络）')
+
+  // 3. 重试策略：429 / 超时 / 取消绝不重试，仅网络/5xx 最多 2 次
+  assert(visionCore.shouldRetry('RATE_LIMITED_REMOTE', 0) === false
+    && visionCore.shouldRetry('TIMEOUT', 0) === false
+    && visionCore.shouldRetry('ABORTED', 0) === false
+    && visionCore.shouldRetry('UNAVAILABLE', 0) === true
+    && visionCore.shouldRetry('UNAVAILABLE', 2) === false
+    && visionCore.retryDelay(0) === 800 && visionCore.retryDelay(1) === 1600,
+  '重试策略：429/超时/取消不重试；网络/5xx 最多 2 次 800/1600ms 退避')
+
+  // 4. 缓存层：内存降级、TTL 7 天、只存文本不存图、可整体清空
+  const memCache = visionCache.createMemoryVisionCache()
+  const cacheKey = 'vision:v1:hash:v1:en:B1'
+  await memCache.put({ key: cacheKey, text: 'hello world', degraded: false, mock: false, createdAt: 1_000_000 })
+  assert((await memCache.get(cacheKey, 1_000_100))?.text === 'hello world'
+    && (await memCache.get(cacheKey, 1_000_000 + visionCache.VISION_TTL_MS + 1)) === null,
+  '视觉缓存：命中返回纯文本，超过 7 天 TTL 自动失效')
+  await memCache.clear()
+  assert((await memCache.get(cacheKey, 1_000_100)) === null,
+  '清空全部数据能清掉视觉缓存（不新增 localStorage 键）')
+
+  // 5. Service 契约：唯一入口 + Mock 可替换 + 单飞/单并发 + 队列上限 + 可观测
+  const svcSrc = fs.readFileSync(path.join(root, 'src/services/visionQuery.ts'), 'utf8')
+  assert(typeof visionSvc.analyzeVisionImage === 'function'
+    && typeof visionSvc.setVisionQueryService === 'function'
+    && visionSvc.mockVisionQueryService.name === 'mock'
+    && visionSvc.mockVisionQueryService.name !== visionSvc.visionQueryService.name,
+  '唯一入口 VisionQueryService + 默认 Mock + setVisionQueryService 可替换')
+  assert(svcSrc.includes('inflight.get(key)') && svcSrc.includes('telemetry.inflightJoin')
+    && svcSrc.includes('VISION_MAX_CONCURRENCY') && svcSrc.includes('queue.length < VISION_MAX_QUEUE')
+    && visionCore.VISION_MAX_CONCURRENCY === 1 && visionCore.VISION_MAX_QUEUE === 3,
+  '单飞：同 key 并发合并；不同图串行队列并发 1、上限 3，超出返回 QUEUE_FULL')
+  assert(svcSrc.includes('getVisionCache(key)') && svcSrc.includes('putVisionCache(')
+    && svcSrc.includes('URL.revokeObjectURL') && svcSrc.includes('sha256(base64)')
+    && svcSrc.includes('RATE_LIMITED_LOCAL') && svcSrc.includes('X-Vision') === false,
+  'Service 链路：缓存复用 + SHA-256 + objectURL 及时释放 + 本地桶满直接返回')
+
+  // 6. 服务端：vision 独立桶、严格 schema、requestId 幂等、max_tokens、不共用 chat 桶
+  assert(chatFnSrc.includes("body.task === 'vision'")
+    && chatFnSrc.includes("checkRateLimit(`vision:${clientIp(req.headers)}`")
+    && chatFnSrc.includes('VISION_SCHEMA_SYSTEM') && chatFnSrc.includes('max_tokens: VISION_MAX_TOKENS')
+    && chatFnSrc.includes('visionSeen.get(requestId)') && chatFnSrc.includes("'X-Vision-Idempotent': 'hit'")
+    && chatFnSrc.includes("'Retry-After': retryAfter")
+    && chatFnSrc.includes('if (images.length !== 1)'),
+  '服务端：vision: 独立桶 + 单图单次 + 严格 JSON schema + max_tokens + requestId 幂等 + Retry-After')
+  assert(storeSrc.includes('clearVisionCache()'),
+  'resetAll 清空全部数据时纳入视觉缓存')
+
+  // 7. 运行时单飞：同一图同参数 5 次并发，真实网络请求只发 1 次（其余 4 次合并/缓存）
+  visionCache.setVisionCacheBackend(visionCache.createMemoryVisionCache())
+  visionSvc.resetVisionTelemetry()
+  visionSvc.configureVisionLimits(3, 30)
+  let networkCalls = 0
+  visionSvc.setVisionTestHooks({
+    preprocess: async (blob) => {
+      // 用 Blob 内容当稳定哈希，模拟真实预处理输出（jsdom 无 Image/Canvas）
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      return { base64: 'data:image/jpeg;base64,' + btoa(String.fromCharCode(...bytes)), hash: 'h-' + [...bytes].join('-') }
+    },
+    fetch: async (_b64, _opts, requestId) => {
+      networkCalls += 1
+      await tick(10)
+      return { ok: true, text: '识别文本', requestId, degraded: false, mock: false, latencyMs: 10 }
+    },
+  })
+  const sameBlob = new Blob([new Uint8Array([1, 2, 3, 4, 5])], { type: 'image/jpeg' })
+  const five = await Promise.all(Array.from({ length: 5 }, () =>
+    visionSvc.visionQueryService.analyzeImage(sameBlob, { targetLang: 'en', levelProfile: 'B1' })))
+  const tele = visionSvc.getVisionTelemetry()
+  assert(networkCalls === 1 && tele.requests === 1 && tele.inflightJoin === 4 && five.length === 5,
+  '运行时：同一图同参数 5 次并发只发 1 次网络请求，其余 4 次单飞合并（无放大请求）')
+  // 第 6 次同图：缓存命中，不再发请求
+  await visionSvc.visionQueryService.analyzeImage(sameBlob, { targetLang: 'en', levelProfile: 'B1' })
+  assert(networkCalls === 1 && visionSvc.getVisionTelemetry().cacheHit >= 1,
+  '运行时：同图第 6 次走缓存命中，网络请求数仍为 1')
+  // 本地桶满后网络请求数不再增长（3/min 已用 1，再打 5 次不同图）
+  const before = networkCalls
+  for (let i = 0; i < 5; i++) {
+    const other = new Blob([new Uint8Array([i + 10, i + 20, i + 30])], { type: 'image/jpeg' })
+    await visionSvc.visionQueryService.analyzeImage(other, { targetLang: 'en', levelProfile: 'B1' })
+  }
+  assert(networkCalls === before + 2,
+  '运行时：本地 vision 桶 3/min 生效，第 4 次起桶满不发网络（总请求数 ≤3）')
+  // 429 不自动重试：fetch 替身返回一次 429，网络调用只发生 1 次，UI 拿到倒计时
+  let rateLimitedCalls = 0
+  visionSvc.configureVisionLimits(30, 100)
+  visionSvc.resetVisionTelemetry()
+  visionSvc.setVisionTestHooks({
+    preprocess: async () => ({ base64: 'data:image/jpeg;base64,AAAA', hash: 'rate-limited-image' }),
+    fetch: async (_b64, _opts, requestId) => {
+      rateLimitedCalls += 1
+      return { ok: false, text: '', code: 'RATE_LIMITED_REMOTE', retryAfterSeconds: 25,
+        requestId, degraded: true, mock: false, latencyMs: 1 }
+    },
+  })
+  const limited = await visionSvc.visionQueryService.analyzeImage(new Blob(['x']), { targetLang: 'en' })
+  assert(rateLimitedCalls === 1 && limited.code === 'RATE_LIMITED_REMOTE' && limited.retryAfterSeconds === 25,
+  '运行时：429 只发 1 次、不自动重试，返回倒计时供 UI 手动重试')
+  visionSvc.setVisionTestHooks(null)
+  visionCache.setVisionCacheBackend(null)
+
+  /* ---- [本轮风险修复] 默认走真实 service / 失败保 ok:false / 手动重试复用 id ---- */
+  // A. 默认服务必须是真实实现（缺陷1：原来 current 默认 Mock，视觉识别从不打后端）
+  assert(svcSrc.includes('let current: VisionQueryService | null = null')
+    && svcSrc.includes('return current ?? visionQueryService')
+    && ocrSrc.includes('analyzeVisionImage('),
+  '默认服务：current 用 null 哨兵，未注入时回退真实 visionQueryService（组件调用 analyzeVisionImage）')
+  // 运行时：不注入时默认走真实 service（fetch 钩子被触发），而非固定 Mock
+  visionSvc.setVisionQueryService(null)
+  visionCache.setVisionCacheBackend(visionCache.createMemoryVisionCache())
+  let defaultFetchHits = 0
+  visionSvc.setVisionTestHooks({
+    preprocess: async () => ({ base64: 'data:image/jpeg;base64,AAAA', hash: 'default-service' }),
+    fetch: async (_b64, _opts, requestId) => {
+      defaultFetchHits += 1
+      return { ok: true, text: 'REAL_VISION', requestId, degraded: false, mock: false, latencyMs: 1 }
+    },
+  })
+  const defaultResult = await visionSvc.analyzeVisionImage(new Blob(['x']), { targetLang: 'en' })
+  assert(defaultFetchHits === 1 && defaultResult.text === 'REAL_VISION' && defaultResult.mock === false,
+  '运行时：默认 analyzeVisionImage 走真实 service 打后端（不再永远返回固定 Mock）')
+
+  // B. 真实失败必须保持 ok:false（缺陷2：原把 Mock 翻成 ok:true → UI 自动 runAnalysis 放大请求）
+  assert(svcSrc.includes('ok: false,') && svcSrc.includes('text: mock.text')
+    && svcSrc.includes('mock: false,'),
+  '失败语义：analyzeVisionImage 回退文本但保 ok:false，标记 degraded/非主动演示')
+  let failFetchHits = 0
+  visionSvc.setVisionTestHooks({
+    preprocess: async () => ({ base64: 'data:image/jpeg;base64,AAAA', hash: 'fail-keep-ok-false' }),
+    fetch: async (_b64, _opts, requestId) => {
+      failFetchHits += 1
+      return { ok: false, text: '', code: 'RATE_LIMITED_REMOTE', retryAfterSeconds: 25,
+        requestId, degraded: true, mock: false, latencyMs: 1 }
+    },
+  })
+  const failed = await visionSvc.analyzeVisionImage(new Blob(['y']), { targetLang: 'en' })
+  assert(failFetchHits === 1 && failed.ok === false && failed.code === 'RATE_LIMITED_REMOTE'
+    && failed.retryAfterSeconds === 25 && failed.mock === false && /演示模式/.test(failed.text),
+  '运行时：429 失败保持 ok:false + code + 倒计时 + 降级文本后备（UI 进等待重试，不自动解析放大请求）')
+
+  // C. 手动重试复用同一 requestId（缺陷3）
+  assert(ocrSrc.includes('void runOcr(lastPhotoRef.current, requestIdRef.current)')
+    && ocrSrc.includes('reuseRequestId?: string')
+    && ocrSrc.includes('requestIdRef.current = reuseRequestId'),
+  '手动重试：retryVision 传原 requestId 复用，服务端幂等命中不重复识别；新拍照才重新生成')
+
+  // D. 取消按钮必须中止在途视觉请求（缺陷4：signal:undefined → 取消后结果回来仍 setText+runAnalysis 放大请求）
+  assert(!ocrSrc.includes('signal: undefined')
+    && ocrSrc.includes('signal: controller.signal')
+    && ocrSrc.includes('controller.signal.aborted')
+    && ocrSrc.includes('visionAbortRef.current?.abort()')
+    && ocrSrc.includes('data-testid="query-ocr-cancel"'),
+  '取消接线：视觉请求透传专属 signal + 取消按钮 abort + await 后 aborted 守卫 + 卸载清理')
+  // 运行时：signal 中止后 service 返回 ABORTED、保持 ok:false（UI 据此不回填不解析）
+  visionSvc.configureVisionLimits(30, 100)
+  visionSvc.resetVisionTelemetry()
+  visionSvc.setVisionTestHooks({
+    preprocess: async () => ({ base64: 'data:image/jpeg;base64,AAAA', hash: 'cancel-guarded' }),
+    fetch: async (_b64, _opts, requestId, signal) => await new Promise((resolve) => {
+      if (signal?.aborted) return resolve({ ok: false, text: '', code: 'ABORTED', requestId, degraded: true, mock: false, latencyMs: 1 })
+      signal?.addEventListener('abort', () => resolve({ ok: false, text: '', code: 'ABORTED', requestId, degraded: true, mock: false, latencyMs: 1 }), { once: true })
+    }),
+  })
+  const cancelCtrl = new AbortController()
+  const cancelPromise = visionSvc.analyzeVisionImage(new Blob(['z']), { targetLang: 'en', signal: cancelCtrl.signal })
+  cancelCtrl.abort()
+  const canceled = await cancelPromise
+  assert(canceled.ok === false && canceled.code === 'ABORTED' && canceled.mock === false,
+  '运行时：signal 中止后视觉请求返回 ABORTED/ok:false（组件 aborted 守卫据此不回填、不触发第二次解析）')
+  visionSvc.setVisionTestHooks(null)
+  visionCache.setVisionCacheBackend(null)
 
   console.log('\n控制台错误数:', errors.length)
   if (errors.length) console.log(errors.slice(0, 3).join('\n'))

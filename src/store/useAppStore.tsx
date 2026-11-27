@@ -9,6 +9,8 @@ import {
 /** [大数据迁移] IndexedDB 正文水合：内置条目走 bundle，自定义条目从库里补回 */
 import { clearBigText, getBigTextBackend } from '../lib/db'
 import { clearDictionaryData } from '../lib/dictionaryDb'
+/** [查询 Query] 视觉识别缓存（7 天 TTL）随「清空全部数据」一并清除 */
+import { clearVisionCache } from '../lib/visionCache'
 import { hydrateCulture, hydrateLibrary } from '../lib/bigText'
 import type { LiteraryBook } from '../literaryTypes'
 import type { CultureVideo } from '../cultureTypes'
@@ -207,8 +209,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     clearAllData()
     /** [大数据迁移] 31 键与 IndexedDB 两张表一并清空，避免残留正文下次冷启动又被水合回来 */
     void clearBigText()
-    /** [查询 Query] 独立词典库一并清空（不新增 localStorage 键） */
+    /** [查询 Query] 独立词典库与视觉缓存一并清空（不新增 localStorage 键） */
     void clearDictionaryData()
+    void clearVisionCache()
     setData(structuredClone(DEFAULT_DATA))
     prevRef.current = undefined
     setDraftText('')
